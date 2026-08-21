@@ -1,4 +1,4 @@
-﻿"""The Linux-only bits of the tun helper, checked from anywhere.
+"""The Linux-only bits of the tun helper, checked from anywhere.
 
 ``TUNSETIFF`` is a magic number and ``struct ifreq`` is a magic layout. Both
 are wrong in exactly the same way when mistyped: the ioctl fails with EINVAL on
@@ -49,8 +49,8 @@ def test_the_ifreq_layout_is_the_size_the_kernel_expects(tun: object) -> None:
 
 
 def test_the_interface_name_is_packed_where_the_kernel_reads_it(tun: object) -> None:
-    packed = tun.IFREQ.pack(b"pyac0", tun.IFF_TUN | tun.IFF_NO_PI, b"")
-    assert packed[:6] == b"pyac0\x00"
+    packed = tun.IFREQ.pack(b"usernet0", tun.IFF_TUN | tun.IFF_NO_PI, b"")
+    assert packed[:9] == b"usernet0\x00"
     assert packed[16:18] == struct.pack("H", 0x1001)
 
 
@@ -60,10 +60,9 @@ def test_the_tun_link_satisfies_the_iplink_protocol(tun: object) -> None:
     from IpLink the conformance run fails on Linux with an AttributeError deep
     in the driver; here it fails as one readable assertion.
     """
-    from usernet.link import SimpleLinkConfig
-    from usernet.link import IpLink
+    from usernet.link import IpLink, SimpleLinkConfig
 
-    device = types.SimpleNamespace(fd=-1, name="pyac0")
+    device = types.SimpleNamespace(fd=-1, name="usernet0")
     config = SimpleLinkConfig(address="10.99.0.2", netmask="255.255.255.0", mtu=1500)
     link = tun.TunLink(device, config)
 
@@ -78,8 +77,9 @@ def test_an_oversized_packet_is_counted_rather_than_sent_silently(tun: object) -
     handshake works, small requests work, and anything larger disappears."""
     from usernet.link import SimpleLinkConfig
 
-    device = types.SimpleNamespace(fd=-1, name="pyac0")
-    link = tun.TunLink(device, SimpleLinkConfig(address="10.99.0.2", netmask="255.255.255.0", mtu=100))
+    device = types.SimpleNamespace(fd=-1, name="usernet0")
+    config = SimpleLinkConfig(address="10.99.0.2", netmask="255.255.255.0", mtu=100)
+    link = tun.TunLink(device, config)
     link.send(b"\x45" + b"\x00" * 200)  # os.write to fd -1 fails; the count is the point
     assert link.oversized == 1
 

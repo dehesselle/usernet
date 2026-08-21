@@ -1,4 +1,4 @@
-﻿"""A Linux tun device presented as an :class:`~usernet.link.IpLink`.
+"""A Linux tun device presented as an :class:`~usernet.link.IpLink`.
 
 The payoff of the layering: the driver, the stack and every socket operation
 are the shipping code, unmodified. Only the bottom 40 lines change -- instead
@@ -17,8 +17,8 @@ import os
 import struct
 from types import TracebackType
 
-from usernet.link import SimpleLinkConfig
 from tests.conformance.trace import PacketTrace
+from usernet.link import SimpleLinkConfig
 
 # <linux/if_tun.h>. TUNSETIFF is _IOW('T', 202, int).
 TUNSETIFF = 0x400454CA
@@ -46,7 +46,7 @@ class TunDevice:
     that needs root and a test suite should not.
     """
 
-    def __init__(self, name: str = "pyac0") -> None:
+    def __init__(self, name: str = "usernet0") -> None:
         self.name = name
         self.fd = self._open(name)
 

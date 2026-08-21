@@ -15,9 +15,9 @@ import subprocess
 import sys
 from dataclasses import dataclass, field
 
-DEVICE = os.environ.get("PYAC_TUN_DEV", "pyac0")
-HOST_IP = os.environ.get("PYAC_TUN_HOST", "10.99.0.1")
-STACK_IP = os.environ.get("PYAC_TUN_STACK", "10.99.0.2")
+DEVICE = os.environ.get("USERNET_TUN_DEV", "usernet0")
+HOST_IP = os.environ.get("USERNET_TUN_HOST", "10.99.0.1")
+STACK_IP = os.environ.get("USERNET_TUN_STACK", "10.99.0.2")
 TUN_PATH = "/dev/net/tun"
 
 SETUP = "sudo sh tests/conformance/setup.sh"
@@ -120,7 +120,7 @@ def check_routing(report: Report) -> bool:
     if f"dev {DEVICE}" not in output:
         report.fail(
             f"{STACK_IP} does not route via {DEVICE}: {output}",
-            f"something else owns that subnet; set PYAC_TUN_HOST/PYAC_TUN_STACK "
+            f"something else owns that subnet; set USERNET_TUN_HOST/USERNET_TUN_STACK "
             f"to an unused range and re-run {SETUP}",
         )
         return False
@@ -185,7 +185,9 @@ def diagnostics() -> str:
 
 
 def main() -> int:
-    print(f"usernet L3 conformance preflight  (device {DEVICE}, kernel {HOST_IP}, stack {STACK_IP})\n")
+    print(
+        f"usernet L3 conformance preflight  (device {DEVICE}, kernel {HOST_IP}, stack {STACK_IP})\n"
+    )
     report = Report()
 
     if check_platform(report) and check_tun_module(report):
@@ -205,7 +207,7 @@ def main() -> int:
         print("  uv run pytest tests/conformance -v")
         print("\nthen, for the case that actually stresses retransmission:")
         print("  sudo sh tests/conformance/impair.sh")
-        print("  PYAC_TUN_NETEM=1 uv run pytest tests/conformance -v")
+        print("  USERNET_TUN_NETEM=1 uv run pytest tests/conformance -v")
         print("  sudo sh tests/conformance/impair.sh --off")
     if report.warnings:
         print(f"({len(report.warnings)} warning(s) above -- read them if tests time out)")

@@ -1,4 +1,4 @@
-﻿"""Which destinations the tunnel will carry.
+"""Which destinations the tunnel will carry.
 
 Cheap to test and expensive to get wrong: a false negative refuses a host the
 user can actually reach, and a false positive restores the unexplained hang the

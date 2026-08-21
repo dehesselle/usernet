@@ -14,8 +14,8 @@ from __future__ import annotations
 
 import pytest
 
-from usernet.runtime.driver import Driver
 from tests.conformance.conftest import HOST_IP, IMPAIRED
+from usernet.runtime.driver import Driver
 
 pytestmark = pytest.mark.linux_only
 

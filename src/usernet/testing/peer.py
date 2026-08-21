@@ -121,9 +121,12 @@ class TcpPeer:
             connection.snd_nxt = seq_add(connection.snd_nxt, 1)
             return out
 
-        connection = self.connections.get(key)
-        if connection is None:
+        # Indexed rather than ``.get()`` so the name keeps the type it was given
+        # in the SYN branch above; a segment for a connection we never opened is
+        # simply dropped, which is what a closed port does.
+        if key not in self.connections:
             return []
+        connection = self.connections[key]
 
         if segment.has(Flag.ACK):
             if not connection.established:

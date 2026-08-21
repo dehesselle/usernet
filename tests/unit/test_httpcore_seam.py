@@ -16,10 +16,10 @@ import httpx
 
 from usernet.http import (
     EXCEPTION_MAP,
-    PyacNetworkBackend,
     TlsNetworkStream,
     TunnelStream,
     TunnelTransport,
+    UsernetNetworkBackend,
 )
 
 
@@ -57,12 +57,12 @@ def test_httpcore_errors_are_translated_for_callers() -> None:
 
 def test_the_backend_interface_is_the_one_we_implement() -> None:
     assert parameters(httpcore.AsyncNetworkBackend.connect_tcp) == parameters(
-        PyacNetworkBackend.connect_tcp
+        UsernetNetworkBackend.connect_tcp
     )
     assert parameters(httpcore.AsyncNetworkBackend.connect_unix_socket) == parameters(
-        PyacNetworkBackend.connect_unix_socket
+        UsernetNetworkBackend.connect_unix_socket
     )
-    assert parameters(httpcore.AsyncNetworkBackend.sleep) == parameters(PyacNetworkBackend.sleep)
+    assert parameters(httpcore.AsyncNetworkBackend.sleep) == parameters(UsernetNetworkBackend.sleep)
 
 
 def test_the_stream_interface_is_the_one_we_implement() -> None:
@@ -75,7 +75,7 @@ def test_the_stream_interface_is_the_one_we_implement() -> None:
 def test_our_streams_are_recognised_as_httpcore_streams() -> None:
     assert issubclass(TunnelStream, httpcore.AsyncNetworkStream)
     assert issubclass(TlsNetworkStream, httpcore.AsyncNetworkStream)
-    assert issubclass(PyacNetworkBackend, httpcore.AsyncNetworkBackend)
+    assert issubclass(UsernetNetworkBackend, httpcore.AsyncNetworkBackend)
 
 
 def test_httpx_is_pinned_below_a_version_we_have_not_tested() -> None:

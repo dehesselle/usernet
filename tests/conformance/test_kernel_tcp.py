@@ -17,17 +17,17 @@ from collections.abc import Awaitable, Callable, Iterator
 
 import pytest
 
+from tests.conformance.conftest import HOST_IP, IMPAIRED, within
+from tests.conformance.trace import PacketTrace
 from usernet.errors import ConnectionRefused, NetworkError
 from usernet.net.ipv4 import PROTO_TCP, parse_ipv4
 from usernet.net.tcp import Flag, TcpSegment, parse_tcp
 from usernet.runtime.driver import Driver
-from tests.conformance.conftest import HOST_IP, IMPAIRED, within
-from tests.conformance.trace import PacketTrace
 
 pytestmark = pytest.mark.linux_only
 
 needs_clean_link = pytest.mark.skipif(
-    IMPAIRED, reason="PYAC_TUN_NETEM is set: loss makes packet counts meaningless"
+    IMPAIRED, reason="USERNET_TUN_NETEM is set: loss makes packet counts meaningless"
 )
 
 Handler = Callable[[asyncio.StreamReader, asyncio.StreamWriter], Awaitable[None]]

@@ -23,9 +23,9 @@ from usernet.errors import (
     HostUnreachable,
     NetworkError,
     ProtocolParseError,
-    UsernetError,
     ResolveError,
     RouteNotAllowed,
+    UsernetError,
 )
 
 VERSION = 0x05

@@ -1,4 +1,4 @@
-﻿"""Fixtures for the L3 conformance suite.
+"""Fixtures for the L3 conformance suite.
 
 Two things matter more here than in the rest of the tree.
 
@@ -32,12 +32,12 @@ if TYPE_CHECKING:
 # Importing tun.py needs fcntl, so this package is not collectable elsewhere.
 collect_ignore_glob = ["test_*.py"] if sys.platform != "linux" else []
 
-DEVICE = "pyac0"
+DEVICE = "usernet0"
 HOST_IP = "10.99.0.1"  # the kernel's end -- real Linux TCP answers here
 STACK_IP = "10.99.0.2"  # ours
 NETMASK = "255.255.255.0"
 
-IMPAIRED = bool(os.environ.get("PYAC_TUN_NETEM"))
+IMPAIRED = bool(os.environ.get("USERNET_TUN_NETEM"))
 """Set when the run is under ``tc qdisc ... netem``.
 
 Some properties are only guaranteed on a clean link. TCP must deliver every

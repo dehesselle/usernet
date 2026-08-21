@@ -5,7 +5,7 @@
 #   sudo sh tests/conformance/impair.sh [delay] [loss]
 #   sudo sh tests/conformance/impair.sh --off
 #
-# A plain `tc qdisc add dev pyac0 root netem ...` is not enough, and the way it
+# A plain `tc qdisc add dev usernet0 root netem ...` is not enough, and the way it
 # falls short is invisible: a root qdisc is EGRESS only, so it degrades
 # kernel->us and leaves our own packets untouched. Our retransmission -- the
 # code most likely to be wrong, and the reason for impairing anything -- is
@@ -14,8 +14,8 @@
 
 set -eu
 
-DEV=${PYAC_TUN_DEV:-pyac0}
-IFB=ifb-pyac
+DEV=${USERNET_TUN_DEV:-usernet0}
+IFB=ifb-usernet
 DELAY=${1:-20ms}
 LOSS=${2:-2%}
 
@@ -23,7 +23,7 @@ LOSS=${2:-2%}
 # a link holds delay x rate packets in flight, so at 150ms RTT anything past
 # a ~1 MiB window overflows the qdisc and the losses look like a bug in the
 # thing under test. Raised well clear of any window we would configure.
-LIMIT=${PYAC_NETEM_LIMIT:-50000}
+LIMIT=${USERNET_NETEM_LIMIT:-50000}
 
 if [ "${1:-}" = "--off" ]; then
     tc qdisc del dev "$DEV" root 2>/dev/null || true
@@ -56,4 +56,4 @@ tc qdisc add dev "$IFB" root netem delay "$DELAY" loss "$LOSS" limit "$LIMIT"
 
 echo "$DEV impaired both ways: delay $DELAY, loss $LOSS"
 echo
-echo "next:  PYAC_TUN_NETEM=1 uv run pytest tests/conformance -v"
+echo "next:  USERNET_TUN_NETEM=1 uv run pytest tests/conformance -v"

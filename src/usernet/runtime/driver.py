@@ -23,9 +23,9 @@ import time
 from dataclasses import replace
 from types import TracebackType
 
-from usernet._async import first_of
-from usernet.link import IpLink
+from usernet.aio import first_of
 from usernet.errors import ConnectionTimeout, NetworkError
+from usernet.link import IpLink
 from usernet.net.events import (
     IcmpEchoReply,
     SocketClosed,

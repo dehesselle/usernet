@@ -10,7 +10,7 @@ from __future__ import annotations
 import struct
 from pathlib import Path
 
-from usernet._pcap import LINKTYPE_RAW, SNAPLEN, PcapWriter
+from usernet.pcap import LINKTYPE_RAW, SNAPLEN, PcapWriter
 
 GLOBAL_HEADER = struct.Struct("<IHHiIII")
 PACKET_HEADER = struct.Struct("<IIII")

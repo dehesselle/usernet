@@ -9,10 +9,10 @@ so it can be proven anywhere.
 
 from __future__ import annotations
 
+from tests.conformance.trace import PacketTrace
 from usernet.net.icmp import build_echo_request
 from usernet.net.ipv4 import PROTO_ICMP, PROTO_TCP, build_ipv4
 from usernet.net.tcp import Flag, build_tcp
-from tests.conformance.trace import PacketTrace
 
 US = "10.99.0.2"
 KERNEL = "10.99.0.1"

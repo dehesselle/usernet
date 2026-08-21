@@ -1,4 +1,4 @@
-﻿"""An in-memory :class:`~usernet.link.IpLink` carrying IP packets to a peer.
+"""An in-memory :class:`~usernet.link.IpLink` carrying IP packets to a peer.
 
 Stands in for the CSTP tunnel, so the stack and driver can be exercised with
 no TLS, no gateway, and no network -- while still going through exactly the
@@ -11,8 +11,8 @@ import asyncio
 import random
 from collections.abc import Callable
 
-from usernet.link import SimpleLinkConfig
 from usernet.errors import ProtocolParseError
+from usernet.link import SimpleLinkConfig
 from usernet.testing.peer import TcpPeer
 
 

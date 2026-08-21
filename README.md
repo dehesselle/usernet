@@ -1,4 +1,4 @@
-﻿# usernet
+# usernet
 
 A userspace TCP/IP stack and SOCKS5 proxy for tunnels that carry raw IP.
 

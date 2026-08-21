@@ -120,7 +120,7 @@ class TlsNetworkStream(AsyncNetworkStream):
         return None
 
 
-class PyacNetworkBackend(AsyncNetworkBackend):
+class UsernetNetworkBackend(AsyncNetworkBackend):
     """Makes httpx dial through the VPN instead of the operating system."""
 
     def __init__(self, driver: Driver, *, connect_timeout: float = 30.0) -> None:
@@ -248,7 +248,7 @@ class TunnelTransport(httpx.AsyncBaseTransport):
         http2: bool = False,
         **pool_options: typing.Any,
     ) -> None:
-        self.backend = PyacNetworkBackend(driver, connect_timeout=connect_timeout)
+        self.backend = UsernetNetworkBackend(driver, connect_timeout=connect_timeout)
         self._pool = httpcore.AsyncConnectionPool(
             ssl_context=build_ssl_context(verify, http2=http2),
             network_backend=self.backend,

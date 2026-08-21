@@ -11,7 +11,7 @@ without pretending these ran.
 ## Running it
 
 ```sh
-sudo sh tests/conformance/setup.sh          # once per boot; creates pyac0
+sudo sh tests/conformance/setup.sh          # once per boot; creates usernet0
 uv run python -m tests.conformance.preflight
 uv run pytest tests/conformance -v
 ```
@@ -40,17 +40,17 @@ The interesting one is impaired:
 
 ```sh
 sudo sh tests/conformance/impair.sh
-PYAC_TUN_NETEM=1 uv run pytest tests/conformance -v
+USERNET_TUN_NETEM=1 uv run pytest tests/conformance -v
 sudo sh tests/conformance/impair.sh --off
 ```
 
-**Do not just do `tc qdisc add dev pyac0 root netem ...`.** A root qdisc is *egress only*, so
+**Do not just do `tc qdisc add dev usernet0 root netem ...`.** A root qdisc is *egress only*, so
 it degrades kernel→us and leaves our own packets untouched — which means our retransmission,
 the code most likely to be wrong, is never exercised at all. The run looks impaired and
 tests half of what it appears to. `impair.sh` redirects ingress through an `ifb` device so
 both directions are degraded; that is what surfaced the two window bugs.
 
-`PYAC_TUN_NETEM=1` disables the packet-count assertions, which are meaningless once loss is
+`USERNET_TUN_NETEM=1` disables the packet-count assertions, which are meaningless once loss is
 deliberate. Everything else still has to hold — byte-exactness above all. **Both runs are
 worth doing**; the clean one catches protocol errors, the impaired one catches recovery
 errors, and they fail in completely different ways.
@@ -59,11 +59,11 @@ errors, and they fail in completely different ways.
 
 | | |
 |---|---|
-| `pyac0` | the tun device; packets written to its fd enter the kernel as if from a wire |
+| `usernet0` | the tun device; packets written to its fd enter the kernel as if from a wire |
 | `10.99.0.1` | the kernel's end — real Linux TCP listens and answers here |
 | `10.99.0.2` | us; the address our stack believes it has |
 
-Override with `PYAC_TUN_DEV`, `PYAC_TUN_HOST`, `PYAC_TUN_STACK` if that subnet is taken.
+Override with `USERNET_TUN_DEV`, `USERNET_TUN_HOST`, `USERNET_TUN_STACK` if that subnet is taken.
 
 ## Reading a failure
 
@@ -89,8 +89,8 @@ Timeouts are deliberately raised as ordinary test failures rather than left to
 Almost always the environment, not the stack — the trace will show our packets leaving and
 nothing coming back:
 
-1. **A firewall.** `sudo iptables -I INPUT -i pyac0 -j ACCEPT`
-2. **The interface is down or lost its address.** `ip addr show pyac0`
-3. **Reverse-path filtering.** `sudo sysctl -w net.ipv4.conf.pyac0.rp_filter=0`
+1. **A firewall.** `sudo iptables -I INPUT -i usernet0 -j ACCEPT`
+2. **The interface is down or lost its address.** `ip addr show usernet0`
+3. **Reverse-path filtering.** `sudo sysctl -w net.ipv4.conf.usernet0.rp_filter=0`
 
 `preflight` warns about the first and checks the second and third.
