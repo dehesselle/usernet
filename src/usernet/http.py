@@ -229,30 +229,33 @@ def build_ssl_context(
     return context
 
 
-class TunnelTransport(httpx.AsyncBaseTransport):
-    """An httpx transport whose connections all run through the tunnel.
+class PoolTransport(httpx.AsyncBaseTransport):
+    """An httpx transport over an httpcore pool with a backend you supply.
 
-    ``verify`` belongs here rather than on the client. ``httpx.AsyncClient``
-    only applies its own ``verify`` to the transport *it* builds, so passing
-    one alongside a custom transport silently does nothing -- which would make
-    ``--insecure`` and ``--cacert`` look like they worked while changing
-    nothing at all.
+    Split out from :class:`TunnelTransport` because "where do the bytes come
+    from" is the only thing a caller ever wants to change, and everything else
+    -- HTTP/2 flow control, streaming response bodies, the error translation --
+    is httpcore's and worth not reimplementing. ``pyts`` uses this to run
+    HTTP/2 inside a Noise session, which is not a tunnel and has no driver.
+
+    The alternative is reaching into ``client._transport._pool`` to swap the
+    backend after the fact, which works until httpx renames something.
     """
 
     def __init__(
         self,
-        driver: Driver,
+        backend: AsyncNetworkBackend,
         *,
-        verify: bool | str | ssl.SSLContext = True,
-        connect_timeout: float = 30.0,
+        ssl_context: ssl.SSLContext | None = None,
+        http1: bool = True,
         http2: bool = False,
         **pool_options: typing.Any,
     ) -> None:
-        self.backend = UsernetNetworkBackend(driver, connect_timeout=connect_timeout)
+        self.backend = backend
         self._pool = httpcore.AsyncConnectionPool(
-            ssl_context=build_ssl_context(verify, http2=http2),
-            network_backend=self.backend,
-            http1=True,
+            ssl_context=ssl_context,
+            network_backend=backend,
+            http1=http1,
             http2=http2,
             **pool_options,
         )
@@ -284,6 +287,34 @@ class TunnelTransport(httpx.AsyncBaseTransport):
 
     async def aclose(self) -> None:
         await self._pool.aclose()
+
+
+class TunnelTransport(PoolTransport):
+    """An httpx transport whose connections all run through the tunnel.
+
+    ``verify`` belongs here rather than on the client. ``httpx.AsyncClient``
+    only applies its own ``verify`` to the transport *it* builds, so passing
+    one alongside a custom transport silently does nothing -- which would make
+    ``--insecure`` and ``--cacert`` look like they worked while changing
+    nothing at all.
+    """
+
+    def __init__(
+        self,
+        driver: Driver,
+        *,
+        verify: bool | str | ssl.SSLContext = True,
+        connect_timeout: float = 30.0,
+        http2: bool = False,
+        **pool_options: typing.Any,
+    ) -> None:
+        super().__init__(
+            UsernetNetworkBackend(driver, connect_timeout=connect_timeout),
+            ssl_context=build_ssl_context(verify, http2=http2),
+            http1=True,
+            http2=http2,
+            **pool_options,
+        )
 
 
 class _ResponseStream(httpx.AsyncByteStream):
