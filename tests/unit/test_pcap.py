@@ -7,32 +7,10 @@ worse, opens it and shows nonsense. Since this file is the tool every later
 
 from __future__ import annotations
 
-import struct
 from pathlib import Path
 
-from usernet.pcap import LINKTYPE_RAW, SNAPLEN, PcapWriter
-
-GLOBAL_HEADER = struct.Struct("<IHHiIII")
-PACKET_HEADER = struct.Struct("<IIII")
-
-
-def records(path: Path) -> list[tuple[int, int, int, int, bytes]]:
-    """Re-read a pcap the way Wireshark would: header, then length-prefixed records."""
-    data = path.read_bytes()
-    magic, major, minor, _zone, _sigfigs, snaplen, network = GLOBAL_HEADER.unpack_from(data)
-    assert magic == 0xA1B2C3D4, "wrong byte order or not a pcap at all"
-    assert (major, minor) == (2, 4)
-    assert snaplen == SNAPLEN
-    assert network == LINKTYPE_RAW
-
-    out = []
-    offset = GLOBAL_HEADER.size
-    while offset < len(data):
-        seconds, micros, captured, original = PACKET_HEADER.unpack_from(data, offset)
-        offset += PACKET_HEADER.size
-        out.append((seconds, micros, captured, original, data[offset : offset + captured]))
-        offset += captured
-    return out
+from usernet.pcap import SNAPLEN, PcapWriter
+from usernet.testing.pcap import GLOBAL_HEADER, records
 
 
 def test_an_empty_capture_is_just_the_global_header(tmp_path: Path) -> None:
