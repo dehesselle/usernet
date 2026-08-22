@@ -94,7 +94,16 @@ class PyStack:
         self._udp_by_port: dict[int, SocketId] = {}
 
         self._next_sid = 1
-        self._next_port = EPHEMERAL_LOW
+        # Started at a random point in the range, not at the bottom of it.
+        # A stack that always opens on 49152 collides with its own previous
+        # process: run something short-lived twice -- an ssh ProxyCommand is
+        # the obvious case -- and the second run's SYN lands on a four-tuple
+        # the peer still has open. The peer answers per RFC 793 with a bare
+        # ACK carrying the *old* connection's sequence numbers rather than a
+        # SYN-ACK, so the connect times out with the wire full of traffic and
+        # nothing to say why. RFC 6056 asks for this for stronger reasons; the
+        # cheap collision is the one that actually bites.
+        self._next_port = EPHEMERAL_LOW + config.rng() % (EPHEMERAL_HIGH - EPHEMERAL_LOW + 1)
         self._ip_id = 0
         self._icmp_ident = 0
 

@@ -1285,3 +1285,40 @@ def test_acknowledgement_reports_the_socket_writable_again() -> None:
 
     assert "writable" in h.event_names()
     assert h.tcb.tx_space == 600
+
+
+# --- ephemeral ports --------------------------------------------------------
+
+
+def test_two_stacks_do_not_open_on_the_same_ephemeral_port() -> None:
+    """A stack that always starts at 49152 collides with its own previous
+    process. Run something short-lived twice -- an ssh ProxyCommand is the
+    obvious case -- and the second run's SYN lands on a four-tuple the peer
+    still has open, which it answers with a bare ACK carrying the *old*
+    connection's sequence numbers rather than a SYN-ACK. The connect then times
+    out with the wire full of traffic and nothing anywhere to say why.
+    """
+    from usernet.net.stack import EPHEMERAL_HIGH, EPHEMERAL_LOW, PyStack, StackConfig
+
+    seeds = iter(range(1, 200))
+    ports = set()
+    for _ in range(16):
+        seed = next(seeds) * 7919  # anything that is not a run of consecutives
+        stack = PyStack(StackConfig(local_ip="100.64.0.1", rng=lambda seed=seed: seed))  # type: ignore[misc]
+        sid = stack.tcp_connect(("100.64.0.2", 22))
+        ports.add(stack._tcbs[sid].local_port)
+
+    assert len(ports) > 8, f"only {len(ports)} distinct ports from 16 stacks"
+    assert all(EPHEMERAL_LOW <= port <= EPHEMERAL_HIGH for port in ports)
+
+
+def test_a_pinned_rng_still_gives_a_reproducible_port() -> None:
+    """The randomness is injected, so a failing run reproduces exactly."""
+    from usernet.net.stack import PyStack, StackConfig
+
+    def first_port() -> int:
+        stack = PyStack(StackConfig(local_ip="100.64.0.1", rng=lambda: 12345))
+        sid = stack.tcp_connect(("100.64.0.2", 22))
+        return stack._tcbs[sid].local_port
+
+    assert first_port() == first_port()
