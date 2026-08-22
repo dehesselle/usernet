@@ -8,6 +8,7 @@ same interface the real tunnel presents.
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import random
 from collections.abc import Callable
 
@@ -34,9 +35,20 @@ class VirtualLink:
         reorder: float = 0.0,
         seed: int = 0,
         on_send: Callable[[bytes], None] | None = None,
+        split_include: tuple[str, ...] = (),
+        split_exclude: tuple[str, ...] = (),
     ) -> None:
         self.peer = peer
-        self._config = SimpleLinkConfig(address=address, netmask="255.255.0.0", mtu=mtu)
+        # Taken as CIDR strings rather than IPv4Network objects: a test reads
+        # better with "10.0.0.0/8" in it, and this is the only place in the
+        # package where the conversion has to happen anyway.
+        self._config = SimpleLinkConfig(
+            address=address,
+            netmask="255.255.0.0",
+            mtu=mtu,
+            split_include=tuple(ipaddress.IPv4Network(n) for n in split_include),
+            split_exclude=tuple(ipaddress.IPv4Network(n) for n in split_exclude),
+        )
         self._inbound: list[bytes] = []
         self._wake = asyncio.Event()
         self._closed = asyncio.Event()

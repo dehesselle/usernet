@@ -14,6 +14,15 @@ in ``TcpStream.write`` until the peer's window allows more; tunnel to client
 calls ``drain()`` before reading again, so a slow client leaves bytes in the
 stack's receive buffer, which shrinks the advertised window and makes the peer
 stop sending. Copying either direction into a queue would silently undo it.
+
+**Names are resolved by the tunnel or not at all.** A SOCKS5 request may carry
+a hostname instead of an address, and the whole point of ``socks5h://`` is that
+the *proxy* resolves it. Which resolver that should be is a property of the
+tunnel -- MagicDNS for a tailnet, whatever the gateway advertises for a VPN,
+nothing at all for a link that offers none -- so it arrives as a ``resolver``
+callable rather than being decided here. Falling back to the host's own DNS
+would be actively wrong: it would send tunnel-destined traffic to whatever
+public record happened to match the name.
 """
 
 from __future__ import annotations
@@ -23,9 +32,10 @@ import contextlib
 import hmac
 import ipaddress
 import logging
+from collections.abc import Awaitable, Callable
 from types import TracebackType
 
-from usernet.errors import NetworkError, ProtocolParseError
+from usernet.errors import NetworkError, ProtocolParseError, ResolveError
 from usernet.routing import describe_routes, route_allows
 from usernet.runtime.driver import Driver, TcpStream
 from usernet.socks.protocol import (
@@ -51,6 +61,14 @@ log = logging.getLogger("usernet.socks")
 
 RELAY_CHUNK = 65536
 
+Resolver = Callable[[str], Awaitable[str]]
+"""Turns a hostname into an address the tunnel can reach.
+
+Raises :class:`~usernet.errors.ResolveError` when it cannot, with a message
+written for whoever is reading a terminal: it becomes the SOCKS rejection, and
+a rejection is all the client ever sees.
+"""
+
 
 class Socks5Server:
     """CONNECT-only SOCKS5, serving one :class:`~usernet.runtime.driver.Driver`."""
@@ -66,6 +84,7 @@ class Socks5Server:
         allow_non_loopback: bool = False,
         connect_timeout: float = 30.0,
         route_policy: str = "auto",
+        resolver: Resolver | None = None,
     ) -> None:
         self._driver = driver
         self._host = host
@@ -74,6 +93,7 @@ class Socks5Server:
         self._password = password
         self._connect_timeout = connect_timeout
         self._route_policy = route_policy
+        self._resolver = resolver
         self._server: asyncio.Server | None = None
         self._bound_port = port
         self._handlers: set[asyncio.Task[None]] = set()
@@ -253,23 +273,33 @@ class Socks5Server:
                 f"command {request.command} needs the proxy to accept inbound "
                 f"connections, which a client-only stack cannot do",
             )
+        host = request.host
         if request.is_name:
-            raise SocksRejection(
-                Reply.HOST_UNREACHABLE,
-                f"cannot resolve {request.host!r}: this gateway advertises no DNS "
-                f"servers, so there is nothing to resolve against. Use an address, "
-                f"or --socks5 rather than --socks5-hostname.",
-            )
+            if self._resolver is None:
+                raise SocksRejection(
+                    Reply.HOST_UNREACHABLE,
+                    f"cannot resolve {host!r}: this tunnel advertises no DNS servers, "
+                    f"so there is nothing to resolve against. Use an address, or "
+                    f"--socks5 rather than --socks5-hostname.",
+                )
+            try:
+                host = await self._resolver(host)
+            except ResolveError as exc:
+                # The resolver's message, not ours: it knows which names it
+                # serves and this class does not.
+                raise SocksRejection(Reply.HOST_UNREACHABLE, str(exc)) from None
+            log.debug("socks: resolved %s to %s", request.host, host)
 
         config = self._driver.link.config
-        if self._route_policy == "auto" and not route_allows(config, request.host):
+        if self._route_policy == "auto" and not route_allows(config, host):
+            where = request.host if host == request.host else f"{request.host} ({host})"
             raise SocksRejection(
                 Reply.NOT_ALLOWED,
-                f"{request.host} is outside the gateway's split routes "
+                f"{where} is outside the tunnel's routes "
                 f"({describe_routes(config)}); packets would be discarded with no error",
             )
 
-        return await self._driver.connect(request.host, request.port, timeout=self._connect_timeout)
+        return await self._driver.connect(host, request.port, timeout=self._connect_timeout)
 
     # --- relaying ----------------------------------------------------------
 
