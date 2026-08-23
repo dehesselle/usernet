@@ -308,13 +308,20 @@ class TunnelTransport(PoolTransport):
         http2: bool = False,
         **pool_options: typing.Any,
     ) -> None:
+        backend = UsernetNetworkBackend(driver, connect_timeout=connect_timeout)
         super().__init__(
-            UsernetNetworkBackend(driver, connect_timeout=connect_timeout),
+            backend,
             ssl_context=build_ssl_context(verify, http2=http2),
             http1=True,
             http2=http2,
             **pool_options,
         )
+        self._backend = backend
+
+    @property
+    def last_connect_ms(self) -> float:
+        """How long the most recent handshake took. See ``UsernetNetworkBackend``."""
+        return self._backend.last_connect_ms
 
 
 class _ResponseStream(httpx.AsyncByteStream):
