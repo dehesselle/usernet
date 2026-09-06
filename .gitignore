@@ -8,6 +8,7 @@ wheels/
 .mypy_cache
 .pytest_cache
 .ruff_cache
+src/usernet/version.py
 
 # Virtual environments
 .venv

@@ -25,6 +25,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from usernet.version import __version__
+
 __all__ = [
     "Driver",
     "IpLink",
@@ -48,21 +50,11 @@ if TYPE_CHECKING:
 
 
 def __getattr__(name: str) -> Any:
-    if name == "__version__":
-        # From the installed metadata rather than a literal here. The project
-        # takes its version from git tags (hatch-vcs), so a hardcoded string
-        # would sooner or later disagree with the package actually installed --
-        # and a version that lies is worse than one that is merely unknown.
-        from importlib.metadata import PackageNotFoundError, version
-
-        try:
-            return version("usernet")
-        except PackageNotFoundError:
-            return "0.0.0+unknown"
     if name in ("IpLink", "LinkConfig", "SimpleLinkConfig"):
         from usernet import link
 
         return getattr(link, name)
+
     if name in ("PyStack", "StackConfig"):
         from usernet.net import stack
 
@@ -71,12 +63,15 @@ def __getattr__(name: str) -> Any:
         from usernet.runtime import driver
 
         return getattr(driver, name)
+
     if name == "Socks5Server":
         from usernet.socks import Socks5Server
 
         return Socks5Server
+
     if name in ("describe_routes", "route_allows"):
         from usernet import routing
 
         return getattr(routing, name)
+
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
