@@ -109,6 +109,9 @@ class Socks5Server:
         self.connections = 0
         self.rejected = 0
         self.active = 0
+        # Live relays, by the destination the *client* asked for: the stream's
+        # own peer is the resolved address, which is not what anyone typed.
+        self.relays: dict[TcpStream, str] = {}
 
     # --- lifecycle ---------------------------------------------------------
 
@@ -185,6 +188,7 @@ class Socks5Server:
             writer.write(build_reply(Reply.SUCCESS, self._driver.link.config.address, request.port))
             await writer.drain()
             log.info("socks: %s:%d connected", request.host, request.port)
+            self.relays[stream] = f"{request.host}:{request.port}"
 
             await self._relay(stream, reader, writer)
             relayed = True
@@ -203,6 +207,8 @@ class Socks5Server:
             pass  # a client hanging up mid-negotiation is routine
         finally:
             self.active -= 1
+            if stream is not None:
+                self.relays.pop(stream, None)
             if task is not None:
                 self._handlers.discard(task)
             if stream is not None and not relayed:

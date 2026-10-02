@@ -83,6 +83,12 @@ class TcpStream:
         self.error: NetworkError | None = None
         self.eof = False
 
+        # Payload bytes as the application saw them, for whoever wants to show
+        # that a connection is alive. Plain ints: everything runs on one loop.
+        self.rx = 0
+        self.tx = 0
+        self.opened_at = time.monotonic()
+
     async def read(self, max_bytes: int = 65536) -> bytes:
         """Read once. Returns ``b""`` at end of stream."""
         while True:
@@ -90,6 +96,7 @@ class TcpStream:
             data = self._driver.stack.tcp_recv(self._sid, max_bytes, self._driver.now)
             if data:
                 self._driver.wake()  # a window update may be waiting to go out
+                self.rx += len(data)
                 return data
             if self.eof or self.finished.is_set():
                 return b""
@@ -119,6 +126,7 @@ class TcpStream:
             accepted = self._driver.stack.tcp_send(self._sid, view, self._driver.now)
             self._driver.wake()
             if accepted:
+                self.tx += accepted
                 view = view[accepted:]
                 continue
 
