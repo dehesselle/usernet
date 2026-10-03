@@ -289,7 +289,7 @@ class Tcb:
         if accepted < len(data):
             self._write_blocked = True
         if accepted > 0:
-            self.send_buffer += bytes(data[:accepted])
+            self.send_buffer += data[:accepted]
             self._pump(now)
         return accepted
 
