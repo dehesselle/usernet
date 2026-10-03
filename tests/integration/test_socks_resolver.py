@@ -17,6 +17,7 @@ import pytest
 import pytest_asyncio
 
 from usernet.errors import ResolveError
+from usernet.http import httpx_client
 from usernet.runtime.driver import Driver
 from usernet.socks import Socks5Server
 from usernet.socks.protocol import Reply
@@ -166,4 +167,66 @@ async def test_a_resolver_that_raises_something_unexpected_does_not_kill_the_pro
         assert b"resolved" in body
     finally:
         await proxy.aclose()
+        await driver.aclose()
+
+
+# --- on the driver ------------------------------------------------------------
+
+
+async def test_a_drivers_resolver_is_the_proxys_default(peer: TcpPeer) -> None:
+    """One resolver per tunnel, not one per consumer."""
+    link = VirtualLink(peer, address=CLIENT_IP)
+    driver = Driver(link, resolver=a_resolver)
+    driver.start()
+    proxy = Socks5Server(driver, host="127.0.0.1", port=0)
+    await proxy.start()
+    try:
+        code, body = await socks_connect(proxy.port, NAME, 80)
+        assert code == Reply.SUCCESS
+        assert b"resolved" in body
+    finally:
+        await proxy.aclose()
+        await driver.aclose()
+
+
+async def test_the_driver_connects_to_a_name_it_can_resolve(peer: TcpPeer) -> None:
+    driver = Driver(VirtualLink(peer, address=CLIENT_IP), resolver=a_resolver)
+    driver.start()
+    try:
+        stream = await driver.connect(NAME, 80, timeout=5.0)
+        assert stream.peer == (SERVER_IP, 80)
+        stream.abort()
+    finally:
+        await driver.aclose()
+
+
+async def test_http_through_the_driver_reaches_a_name(peer: TcpPeer) -> None:
+    """The HTTP transport dials through the driver, so it needs nothing of its own."""
+    driver = Driver(VirtualLink(peer, address=CLIENT_IP), resolver=a_resolver)
+    driver.start()
+    try:
+        async with httpx_client(driver) as client:
+            response = await client.get(f"http://{NAME}/")
+        assert response.text == "resolved"
+    finally:
+        await driver.aclose()
+
+
+async def test_without_a_resolver_the_driver_refuses_a_name(peer: TcpPeer) -> None:
+    driver = Driver(VirtualLink(peer, address=CLIENT_IP))
+    driver.start()
+    try:
+        with pytest.raises(ResolveError, match="no resolver"):
+            await driver.connect(NAME, 80, timeout=5.0)
+    finally:
+        await driver.aclose()
+
+
+async def test_the_resolvers_refusal_reaches_the_caller(peer: TcpPeer) -> None:
+    driver = Driver(VirtualLink(peer, address=CLIENT_IP), resolver=a_resolver)
+    driver.start()
+    try:
+        with pytest.raises(ResolveError, match="not a name this tunnel knows"):
+            await driver.connect("elsewhere.example", 80, timeout=5.0)
+    finally:
         await driver.aclose()

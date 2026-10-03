@@ -24,7 +24,7 @@ from dataclasses import replace
 from types import TracebackType
 
 from usernet.aio import first_of
-from usernet.errors import ConnectionTimeout, NetworkError
+from usernet.errors import ConnectionTimeout, NetworkError, ResolveError
 from usernet.link import IpLink
 from usernet.net.events import (
     IcmpEchoReply,
@@ -39,6 +39,7 @@ from usernet.net.events import (
 from usernet.net.stack import PyStack, StackConfig
 from usernet.net.tcb import DEFAULT_MAX_OOO_SEGMENTS, State, TcbConfig
 from usernet.net.tcp import DEFAULT_MSS
+from usernet.resolve import Resolver, is_address
 
 log = logging.getLogger("usernet.runtime")
 
@@ -171,8 +172,13 @@ class Driver:
         mss: int | None = None,
         buffer: int | None = None,
         stack_config: StackConfig | None = None,
+        resolver: Resolver | None = None,
     ) -> None:
         self.link = link
+        # How names become addresses, for everything that dials through this
+        # driver: connect, ping, the HTTP transport, and the SOCKS server
+        # unless it is given its own. None means names are refused.
+        self.resolver = resolver
         tunnel = link.config
 
         # Per-socket send and receive buffer. Worth exposing because it sets
@@ -350,6 +356,21 @@ class Driver:
 
     # --- public operations -------------------------------------------------
 
+    async def resolve(self, host: str) -> str:
+        """``host`` as an address: unchanged if it is one, else via the resolver.
+
+        Raises :class:`~usernet.errors.ResolveError` for a name this driver
+        cannot resolve -- never asks the host's DNS instead.
+        """
+        if is_address(host):
+            return host
+        if self.resolver is None:
+            raise ResolveError(
+                f"cannot resolve {host!r}: this tunnel has no resolver, and names are "
+                f"never sent to the host's. Use an address."
+            )
+        return await self.resolver(host)
+
     async def connect(
         self,
         host: str,
@@ -362,7 +383,10 @@ class Driver:
         The timeout is a parameter rather than something the caller wraps,
         because a failed connect must abort the half-open socket rather than
         leave it retransmitting SYNs into a cancelled task.
+
+        ``host`` may be a name if the driver has a resolver.
         """
+        host = await self.resolve(host)
         self.now = monotonic_ms()
         sid = self.stack.tcp_connect((host, port))
         stream = TcpStream(self, sid, (host, port))
@@ -401,6 +425,7 @@ class Driver:
         timeout belongs in the signature: callers want ``None``, not a
         cancellation to catch.
         """
+        host = await self.resolve(host)
         key = (self._icmp_ident, sequence)
         future: asyncio.Future[int] = asyncio.get_running_loop().create_future()
         self._echo_waiters[key] = future

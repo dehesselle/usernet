@@ -19,10 +19,11 @@ stop sending. Copying either direction into a queue would silently undo it.
 a hostname instead of an address, and the whole point of ``socks5h://`` is that
 the *proxy* resolves it. Which resolver that should be is a property of the
 tunnel -- MagicDNS for a tailnet, whatever the gateway advertises for a VPN,
-nothing at all for a link that offers none -- so it arrives as a ``resolver``
-callable rather than being decided here. Falling back to the host's own DNS
-would be actively wrong: it would send tunnel-destined traffic to whatever
-public record happened to match the name.
+a fixed table for one that offers none -- so it arrives as a ``resolver``
+callable (the driver's, by default) rather than being decided here. With none,
+names are refused. Falling back to the host's own DNS would be actively wrong:
+it would send tunnel-destined traffic to whatever public record happened to
+match the name.
 """
 
 from __future__ import annotations
@@ -32,10 +33,10 @@ import contextlib
 import hmac
 import ipaddress
 import logging
-from collections.abc import Awaitable, Callable
 from types import TracebackType
 
 from usernet.errors import NetworkError, ProtocolParseError, ResolveError
+from usernet.resolve import Resolver
 from usernet.routing import describe_routes, route_allows
 from usernet.runtime.driver import Driver, TcpStream
 from usernet.socks.protocol import (
@@ -61,14 +62,6 @@ log = logging.getLogger("usernet.socks")
 
 RELAY_CHUNK = 65536
 
-Resolver = Callable[[str], Awaitable[str]]
-"""Turns a hostname into an address the tunnel can reach.
-
-Raises :class:`~usernet.errors.ResolveError` when it cannot, with a message
-written for whoever is reading a terminal: it becomes the SOCKS rejection, and
-a rejection is all the client ever sees.
-"""
-
 
 class Socks5Server:
     """CONNECT-only SOCKS5, serving one :class:`~usernet.runtime.driver.Driver`."""
@@ -93,7 +86,8 @@ class Socks5Server:
         self._password = password
         self._connect_timeout = connect_timeout
         self._route_policy = route_policy
-        self._resolver = resolver
+        # The driver's resolver unless this proxy was given its own.
+        self._resolver = resolver if resolver is not None else driver.resolver
         self._server: asyncio.Server | None = None
         self._bound_port = port
         self._handlers: set[asyncio.Task[None]] = set()
