@@ -150,6 +150,10 @@ def macro(checkouts: list[Checkout], names: list[str], reps: int, out: Path) -> 
                     one(rep, name, checkout)
 
     with kernel_server():
+        # Discarded: the first transfer after the server starts pays for its
+        # warm-up, and in the first A/A run that alone read as a 25% gap.
+        for checkout in checkouts:
+            run_client(checkout, ("download", "--bytes", str(16 * MIB)))
         sweep([n for n in names if not SCENARIOS[n].impaired])
         lossy = [n for n in names if SCENARIOS[n].impaired]
         if lossy:

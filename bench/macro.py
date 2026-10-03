@@ -42,6 +42,7 @@ HOST_IP = os.environ.get("USERNET_TUN_HOST", "10.99.0.1")
 STACK_IP = os.environ.get("USERNET_TUN_STACK", "10.99.0.2")
 NETMASK = "255.255.255.0"
 MIB = 1024 * 1024
+SETTLE_S = 0.5
 
 
 class Clock:
@@ -144,6 +145,12 @@ async def run(args: argparse.Namespace, mtu: int) -> dict[str, object]:
             return await upload(driver, args.port, args.bytes)
         return await echo(driver, args.port, args.count, args.size)
     finally:
+        # Let the closes finish on the wire before the process goes. Leaving
+        # them half-done strands the kernel's ends in ESTABLISHED, and a
+        # later run whose SYN lands on one of those four-tuples gets a bare
+        # ACK back instead of a SYN-ACK -- a connect timeout that looks like
+        # a stack bug. With 300 idle connections a run, it soon happens.
+        await asyncio.sleep(SETTLE_S)
         await driver.aclose()
         await link.aclose()
         device.close()
