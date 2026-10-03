@@ -7,12 +7,12 @@ DNS servers at all and sets ``Tunnel-All-DNS: false``.
 
 from __future__ import annotations
 
-import ipaddress
 import struct
 from dataclasses import dataclass
 
 from usernet.errors import ProtocolParseError
 from usernet.net.checksum import checksum, ones_complement_sum, pseudo_header_sum
+from usernet.net.ipv4 import packed_address
 
 HEADER = struct.Struct("!HHHH")
 HEADER_LEN = 8
@@ -55,8 +55,8 @@ def build_udp(
     length = HEADER_LEN + len(payload)
     header = HEADER.pack(source_port, destination_port, length, 0)
     partial = pseudo_header_sum(
-        ipaddress.IPv4Address(source_ip).packed,
-        ipaddress.IPv4Address(destination_ip).packed,
+        packed_address(source_ip),
+        packed_address(destination_ip),
         proto=PROTO_UDP,
         length=length,
     )
@@ -76,8 +76,8 @@ def verify_udp_checksum(source_ip: str, destination_ip: str, datagram: bytes | m
     if view[6] == 0 and view[7] == 0:
         return True
     partial = pseudo_header_sum(
-        ipaddress.IPv4Address(source_ip).packed,
-        ipaddress.IPv4Address(destination_ip).packed,
+        packed_address(source_ip),
+        packed_address(destination_ip),
         proto=PROTO_UDP,
         length=len(view),
     )

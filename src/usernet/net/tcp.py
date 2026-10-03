@@ -9,7 +9,6 @@ inlined at a call site.
 
 from __future__ import annotations
 
-import ipaddress
 import struct
 from dataclasses import dataclass
 from enum import IntFlag
@@ -226,8 +225,8 @@ def build_tcp(
     _pack_into(
         segment,
         0,
-        ipaddress.IPv4Address(source_ip).packed,
-        ipaddress.IPv4Address(destination_ip).packed,
+        ipv4.packed_address(source_ip),
+        ipv4.packed_address(destination_ip),
         source_port,
         destination_port,
         seq,
@@ -263,8 +262,8 @@ def build_tcp_ipv4(
     the stack emits, so those copies were much of its cost.
     """
     options = _options(mss, window_scale)
-    source = ipaddress.IPv4Address(source_ip).packed
-    destination = ipaddress.IPv4Address(destination_ip).packed
+    source = ipv4.packed_address(source_ip)
+    destination = ipv4.packed_address(destination_ip)
     packet = bytearray(ipv4.MIN_HEADER_LEN + MIN_HEADER_LEN + len(options) + len(payload))
     _pack_into(
         packet,
@@ -346,8 +345,8 @@ def _pack_into(
 
 def verify_tcp_checksum(source_ip: str, destination_ip: str, segment: bytes | memoryview) -> bool:
     partial = pseudo_header_sum(
-        ipaddress.IPv4Address(source_ip).packed,
-        ipaddress.IPv4Address(destination_ip).packed,
+        ipv4.packed_address(source_ip),
+        ipv4.packed_address(destination_ip),
         proto=6,
         length=len(segment),
     )

@@ -30,6 +30,8 @@ from usernet.net.ipv4 import (
     PROTO_ICMP,
     PROTO_TCP,
     build_ipv4,
+    dotted_address,
+    packed_address,
     parse_ipv4,
     verify_header_checksum,
 )
@@ -220,3 +222,27 @@ def test_echo_roundtrip_property(ident: int, sequence: int, payload: bytes) -> N
     assert (message.ident, message.sequence, message.payload) == (ident, sequence, payload)
     assert message.type == ECHO_REQUEST
     assert message.type != ECHO_REPLY
+
+
+# --- address conversion ----------------------------------------------------
+
+
+@pytest.mark.parametrize("address", ["10.0.0", "10.0.0.1.2", "256.0.0.1", "example.com", ""])
+def test_a_malformed_address_is_refused_not_packed(address: str) -> None:
+    """The header packs addresses with ``4s``, which pads or truncates
+    whatever it is given. The cache must not cost us the validation."""
+    for _ in range(2):  # and not on a second call either, from the cache
+        with pytest.raises(ValueError):
+            packed_address(address)
+
+
+@given(st.binary(min_size=4, max_size=4))
+def test_address_conversion_round_trips(raw: bytes) -> None:
+    assert packed_address(dotted_address(raw)) == raw
+
+
+def test_the_address_caches_are_bounded() -> None:
+    """Source addresses come off the tunnel; a peer must not be able to grow
+    a cache without limit by varying them."""
+    assert packed_address.cache_info().maxsize is not None
+    assert dotted_address.cache_info().maxsize is not None

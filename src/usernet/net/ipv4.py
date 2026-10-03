@@ -1,12 +1,15 @@
 """IPv4 header codec.
 
-Sans-IO, so addresses go through :mod:`ipaddress` rather than ``socket``.
+Sans-IO, so addresses go through :mod:`ipaddress` rather than ``socket`` --
+always by way of :func:`packed_address` and :func:`dotted_address`, which
+cache the conversion.
 Runs on every packet in both directions, so the ``struct.Struct`` is built
 once and parsing returns a ``memoryview`` of the payload rather than a copy.
 """
 
 from __future__ import annotations
 
+import functools
 import ipaddress
 import struct
 from dataclasses import dataclass
@@ -25,6 +28,27 @@ PROTO_UDP = 17
 
 FLAG_DONT_FRAGMENT = 0x2
 FLAG_MORE_FRAGMENTS = 0x1
+
+
+@functools.lru_cache(maxsize=1024)
+def packed_address(address: str) -> bytes:
+    """``"10.0.0.1"`` as its 4 wire bytes, validated as :mod:`ipaddress` does.
+
+    Every packet converts its two addresses, they are nearly always the same
+    few, and :mod:`ipaddress` takes microseconds each time -- in the profile
+    of a bulk transfer it was the largest single cost after enum flags.
+    Cached, so the validation still happens, once per address. Bounded,
+    because some of these addresses come off the tunnel and are the peer's to
+    choose. Raises for anything that is not a dotted quad: the header is
+    packed with ``4s``, which would silently pad or truncate it.
+    """
+    return ipaddress.IPv4Address(address).packed
+
+
+@functools.lru_cache(maxsize=1024)
+def dotted_address(packed: bytes) -> str:
+    """4 wire bytes as ``"10.0.0.1"``; the inverse of :func:`packed_address`."""
+    return str(ipaddress.IPv4Address(packed))
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,8 +115,8 @@ def parse_ipv4(packet: bytes | memoryview) -> tuple[Ipv4Header, memoryview]:
         total_length = len(view)
 
     header = Ipv4Header(
-        source=str(ipaddress.IPv4Address(source)),
-        destination=str(ipaddress.IPv4Address(destination)),
+        source=dotted_address(source),
+        destination=dotted_address(destination),
         protocol=protocol,
         header_length=header_length,
         total_length=total_length,
@@ -132,8 +156,8 @@ def build_ipv4(
     packet[MIN_HEADER_LEN:] = payload
     pack_header_into(
         packet,
-        source=ipaddress.IPv4Address(source).packed,
-        destination=ipaddress.IPv4Address(destination).packed,
+        source=packed_address(source),
+        destination=packed_address(destination),
         protocol=protocol,
         identification=identification,
         ttl=ttl,
