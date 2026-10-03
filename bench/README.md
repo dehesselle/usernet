@@ -64,7 +64,8 @@ re-run `uv sync --python 3.12.14`. The baseline stays put.
 | `download` | 64 MiB from the kernel, clean link | CPU-bound: `cpu_s_per_mib` is the stack's receive-path cost |
 | `upload` | 64 MiB to the kernel, clean link | the same for the send path |
 | `echo` | 2000 sequential 100-byte round trips | per-packet overhead plus driver wake latency |
-| `download_idle300` | `download` with 300 idle connections open | the cost of connections that do nothing |
+| `download_idle300` | `download` with 300 idle connections open | the cost of connections that do nothing, during bulk transfer |
+| `echo_idle300` | `echo` with 300 idle connections open | the same, where every round trip is a driver pass of its own |
 | `download_impaired` | 4 MiB at 20 ms / 2 % loss each way (needs root) | must not get worse; limited by recovery, not CPU |
 
 Check the noise floor before trusting a ratio. Run once with baseline and

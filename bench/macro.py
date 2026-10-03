@@ -2,7 +2,7 @@
 
     python bench/macro.py download [--bytes N] [--idle K] [--profile FILE]
     python bench/macro.py upload   [--bytes N]
-    python bench/macro.py echo     [--count N] [--size B]
+    python bench/macro.py echo     [--count N] [--size B] [--idle K]
 
 Linux only, and normally started by ``bench/run.py`` rather than by hand. The
 shipping ``Driver`` and ``PyStack`` run unmodified over the conformance
@@ -58,15 +58,23 @@ class Clock:
         self.cpu = time.process_time() - self.cpu
 
 
-async def download(driver: Driver, port: int, size: int, idle: int) -> dict[str, object]:
-    # Idle connections cost nothing on the wire but sit in the stack's tables,
-    # which is the browser-on-SOCKS case: hundreds of them, mostly quiet.
-    parked: list[TcpStream] = []
-    for _ in range(idle):
+async def park(driver: Driver, port: int, count: int) -> list[TcpStream]:
+    """Open ``count`` connections that then do nothing.
+
+    They cost nothing on the wire but sit in the stack's tables, which is the
+    browser-on-SOCKS case: hundreds of sockets, mostly quiet, beside the one
+    that matters.
+    """
+    parked = []
+    for _ in range(count):
         stream = await driver.connect(HOST_IP, port, timeout=10)
         await stream.write(b"IDLE\n")
         parked.append(stream)
+    return parked
 
+
+async def download(driver: Driver, port: int, size: int, idle: int) -> dict[str, object]:
+    parked = await park(driver, port, idle)
     stream = await driver.connect(HOST_IP, port, timeout=10)
     chunks: list[bytes] = []
     with Clock() as clock:
@@ -98,8 +106,9 @@ async def upload(driver: Driver, port: int, size: int) -> dict[str, object]:
     return _transfer(size, clock)
 
 
-async def echo(driver: Driver, port: int, count: int, size: int) -> dict[str, object]:
+async def echo(driver: Driver, port: int, count: int, size: int, idle: int) -> dict[str, object]:
     message = bytes(range(256))[:size]
+    parked = await park(driver, port, idle)
     stream = await driver.connect(HOST_IP, port, timeout=10)
     await stream.write(b"ECHO\n")
     latencies: list[float] = []
@@ -115,6 +124,8 @@ async def echo(driver: Driver, port: int, count: int, size: int) -> dict[str, ob
                 got += len(chunk)
             latencies.append((time.perf_counter_ns() - t0) / 1000)
     stream.close()
+    for stream in parked:
+        stream.close()
     latencies.sort()
     return {
         "p50_us": statistics.median(latencies),
@@ -143,7 +154,7 @@ async def run(args: argparse.Namespace, mtu: int) -> dict[str, object]:
             return await download(driver, args.port, args.bytes, args.idle)
         if args.scenario == "upload":
             return await upload(driver, args.port, args.bytes)
-        return await echo(driver, args.port, args.count, args.size)
+        return await echo(driver, args.port, args.count, args.size, args.idle)
     finally:
         # Let the closes finish on the wire before the process goes. Leaving
         # them half-done strands the kernel's ends in ESTABLISHED, and a

@@ -72,12 +72,13 @@ async def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--host", default="10.99.0.1")
     parser.add_argument("--port", type=int, default=5201)
+    parser.add_argument("--ports", type=int, default=1, help="listen on this many, from --port")
     args = parser.parse_args()
 
-    server = await asyncio.start_server(handle, args.host, args.port, backlog=1024)
-    print(f"listening on {args.host}:{args.port}", flush=True)
-    async with server:
-        await server.serve_forever()
+    ports = range(args.port, args.port + args.ports)
+    servers = [await asyncio.start_server(handle, args.host, p, backlog=1024) for p in ports]
+    print(f"listening on {args.host}:{ports.start}-{ports.stop - 1}", flush=True)
+    await asyncio.gather(*(server.serve_forever() for server in servers))
 
 
 if __name__ == "__main__":

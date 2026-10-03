@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import itertools
 import json
 import os
 import socket
@@ -36,6 +37,12 @@ BENCH = Path(__file__).resolve().parent
 REPO = BENCH.parent
 HOST_IP = os.environ.get("USERNET_TUN_HOST", "10.99.0.1")
 PORT = 5201
+# Every client run talks to the next of these server ports, so a four-tuple
+# recurs only after this many runs. Kernel sockets outlive the client process
+# that used them -- TIME_WAIT, or orphans retrying a FIN after a failed run --
+# and a SYN that lands on one gets a bare ACK instead of a SYN-ACK: a connect
+# timeout that has nothing to do with the code under test.
+PORT_SPREAD = 100
 MIB = 1024 * 1024
 
 STACK_CPU = "1"
@@ -55,6 +62,7 @@ SCENARIOS = {
     "upload": Scenario(("upload",), TRANSFER),
     "echo": Scenario(("echo",), ("p50_us", "p99_us", "cpu_us_per_op")),
     "download_idle300": Scenario(("download", "--idle", "300"), TRANSFER),
+    "echo_idle300": Scenario(("echo", "--idle", "300"), ("p50_us", "p99_us", "cpu_us_per_op")),
     # Smaller: under loss this is minutes per run, and what it guards against
     # is a regression in recovery, which shows at 4 MiB as well as at 64.
     "download_impaired": Scenario(("download", "--bytes", str(4 * MIB)), ("wall_s",), True),
@@ -89,7 +97,17 @@ class Checkout:
 @contextlib.contextmanager
 def kernel_server() -> Iterator[None]:
     process = subprocess.Popen(
-        ["taskset", "-c", SERVER_CPU, sys.executable, str(BENCH / "kernel_server.py")],
+        [
+            "taskset",
+            "-c",
+            SERVER_CPU,
+            sys.executable,
+            str(BENCH / "kernel_server.py"),
+            "--port",
+            str(PORT),
+            "--ports",
+            str(PORT_SPREAD),
+        ],
         stdout=subprocess.DEVNULL,
     )
     try:
@@ -121,8 +139,14 @@ def impaired() -> Iterator[None]:
         subprocess.run(["sh", str(impair), "--off"], check=True, stdout=subprocess.DEVNULL)
 
 
+_ports = itertools.cycle(range(PORT, PORT + PORT_SPREAD))
+
+
 def run_client(checkout: Checkout, args: tuple[str, ...]) -> dict[str, float]:
-    command = ["taskset", "-c", STACK_CPU, str(checkout.python), str(BENCH / "macro.py"), *args]
+    command = [
+        "taskset", "-c", STACK_CPU, str(checkout.python), str(BENCH / "macro.py"),
+        *args, "--port", str(next(_ports)),
+    ]  # fmt: skip
     result = subprocess.run(command, capture_output=True, text=True, timeout=900)
     if result.returncode != 0:
         raise SystemExit(f"{checkout.label}: {' '.join(args)} failed:\n{result.stderr}")
