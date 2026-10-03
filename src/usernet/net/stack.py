@@ -41,8 +41,8 @@ from usernet.net.ipv4 import (
     verify_header_checksum,
 )
 from usernet.net.tcb import State, Tcb, TcbConfig
-from usernet.net.tcp import build_tcp_ipv4, parse_tcp
-from usernet.net.udp import build_udp, parse_udp
+from usernet.net.tcp import build_tcp_ipv4, parse_tcp, verify_tcp_checksum
+from usernet.net.udp import build_udp, parse_udp, verify_udp_checksum
 
 DEFAULT_MTU = 1406
 IP_HEADER_LEN = 20
@@ -62,6 +62,11 @@ class StackConfig:
 
     max_sockets: int = 512
     verify_checksums: bool = True
+    """Drop received packets whose checksums fail, at every layer: the IP
+    header, and the TCP, UDP or ICMP checksum over the data itself. RFC 1122
+    makes the transport checks a MUST -- the tunnel's crypto protects only the
+    leg to the gateway, and nothing else end to end checks the rest -- so
+    this stays on outside tests."""
 
     tcb: TcbConfig = field(default_factory=TcbConfig)
 
@@ -259,6 +264,14 @@ class PyStack:
         self.tcp_shutdown_write(sid, now)
 
     def _on_tcp(self, source: str, payload: memoryview, now: int) -> None:
+        # Checked before parsing, so damage is reported as what it is rather
+        # than as a malformed header. local_ip is the destination: anything
+        # addressed elsewhere was dropped as not-for-us already.
+        if self.config.verify_checksums and not verify_tcp_checksum(
+            source, self.config.local_ip, payload
+        ):
+            self._drop("bad-tcp-checksum", f"from {source}")
+            return
         try:
             segment = parse_tcp(payload)
         except ProtocolParseError as exc:
@@ -363,6 +376,9 @@ class PyStack:
         self._out.append(self._wrap(dst, PROTO_ICMP, icmp.build_echo_request(ident, seq, payload)))
 
     def _on_icmp(self, source: str, payload: memoryview, now: int) -> None:
+        if self.config.verify_checksums and not icmp.verify_checksum(payload):
+            self._drop("bad-icmp-checksum", f"from {source}")
+            return
         try:
             message = icmp.parse_icmp(payload)
         except ProtocolParseError as exc:
@@ -459,6 +475,11 @@ class PyStack:
         raise NetworkError("no ephemeral port available")
 
     def _on_udp(self, source: str, payload: memoryview) -> None:
+        if self.config.verify_checksums and not verify_udp_checksum(
+            source, self.config.local_ip, payload
+        ):
+            self._drop("bad-udp-checksum", f"from {source}")
+            return
         try:
             datagram = parse_udp(payload)
         except ProtocolParseError as exc:
