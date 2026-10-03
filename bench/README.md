@@ -81,14 +81,18 @@ throughput and CPU, and ±15% for p99 latency.
 Each column is cumulative: that commit and everything before it, compared
 with the baseline.
 
-| | baseline | +checksum `f54531d` | +timer heap `ef97df6` | +first_of `e8216b9` | +fused build `e31acef` | +send copy `d09609a` | +address cache `808bfb2` |
-|---|---|---|---|---|---|---|---|
-| download MB/s | 46.0 | +2% | +1% | +0% | +2% | +4% | **+16%** |
-| upload MB/s | 40.2 | +49% | +49% | +48% | +58% | +62% | **+91%** |
-| echo p50 µs | 181 | −1% | −0% | +1% | +0% | +0% | **−7%** |
-| download, 300 idle: MB/s | 45.9 | +2% | +3% | +4% | +7% | +6% | **+14%** |
-| echo, 300 idle: p50 µs | 394 | −1% | −55% | −55% | −55% | −55% | **−57%** |
-| download at 20 ms / 2% loss: s | 12.7 | within noise throughout ||||| −9% (noise) |
+| | baseline | +checksum `f54531d` | +timer heap `ef97df6` | +first_of `e8216b9` | +fused build `e31acef` | +send copy `d09609a` | +address cache `808bfb2` | +int flags `b6dd8f2` |
+|---|---|---|---|---|---|---|---|---|
+| download MB/s | 46.0 | +2% | +1% | +0% | +2% | +4% | +16% | **+52%** |
+| upload MB/s | 40.2 | +49% | +49% | +48% | +58% | +62% | +91% | **+150%** |
+| echo p50 µs | 181 | −1% | −0% | +1% | +0% | +0% | −7% | **−12%** |
+| download, 300 idle: MB/s | 45.9 | +2% | +3% | +4% | +7% | +6% | +14% | **+51%** |
+| echo, 300 idle: p50 µs | 394 | −1% | −55% | −55% | −55% | −55% | −57% | **−60%** |
+| download at 20 ms / 2% loss: s | 12.7 | within noise throughout |||||| **8.77 → 8.74** |
+
+The loss scenario is too noisy for 10 runs to say much: single runs range
+from about 4 to 14 s on either side, depending on where the losses fall. The
+final number is from 20 runs per side.
 
 The first_of fast path (`e8216b9`) measured no gain in any scenario and was
 reverted (`fb96ffa`).
@@ -98,6 +102,9 @@ building a data segment 21.5 → 6.6 µs; one segment out through the stack
 58 → 38 µs, one in 29 → 24 µs; a timer pass with 500 sockets 264 µs →
 0.18 µs, now constant.
 
-The remaining receive-path cost is led by `enum` flag operations
-(`IntFlag.__and__` and `Flag(...)`), at roughly a quarter of the profiled
-time of a download. Event dispatch does not appear in the top 25.
+After `808bfb2` the profile was led by `enum` flag operations
+(`IntFlag.__and__` and `Flag(...)`), at roughly a quarter of the time of a
+download; event dispatch did not appear in the top 25. Plain-int flags
+(`b6dd8f2`) took a segment through the stack from 38 to 26 µs out and from
+24 to 16 µs in. Since then the profile is flat: the TCB's own logic, spread
+across many small functions, with no single hot spot left.
