@@ -70,3 +70,33 @@ re-run `uv sync --python 3.12.14`. The baseline stays put.
 
 Check the noise floor before trusting a ratio. Run once with baseline and
 candidate at the same commit; the ratios this gives are the run-to-run noise.
+
+## Results: stack hot-path series (October 2026)
+
+Hetzner CCX23 (4 dedicated vCPU, AMD EPYC Milan), Ubuntu 26.04, CPython
+3.12.14, tun MTU 1406. Baseline `489bf87`. Medians of 10 interleaved runs.
+An A/A run (baseline against itself) put the noise floor at about ±2% for
+throughput and CPU, and ±15% for p99 latency.
+
+Each column is cumulative: that commit and everything before it, compared
+with the baseline.
+
+| | baseline | +checksum `f54531d` | +timer heap `ef97df6` | +first_of `e8216b9` | +fused build `e31acef` | +send copy `d09609a` | +address cache `808bfb2` |
+|---|---|---|---|---|---|---|---|
+| download MB/s | 46.0 | +2% | +1% | +0% | +2% | +4% | **+16%** |
+| upload MB/s | 40.2 | +49% | +49% | +48% | +58% | +62% | **+91%** |
+| echo p50 µs | 181 | −1% | −0% | +1% | +0% | +0% | **−7%** |
+| download, 300 idle: MB/s | 45.9 | +2% | +3% | +4% | +7% | +6% | **+14%** |
+| echo, 300 idle: p50 µs | 394 | −1% | −55% | −55% | −55% | −55% | **−57%** |
+| download at 20 ms / 2% loss: s | 12.7 | within noise throughout ||||| −9% (noise) |
+
+The first_of fast path (`e8216b9`) measured no gain in any scenario.
+
+Micro (Linux), baseline → `808bfb2`: checksum of 1363 B 14.2 → 3.2 µs;
+building a data segment 21.5 → 6.6 µs; one segment out through the stack
+58 → 38 µs, one in 29 → 24 µs; a timer pass with 500 sockets 264 µs →
+0.18 µs, now constant.
+
+The remaining receive-path cost is led by `enum` flag operations
+(`IntFlag.__and__` and `Flag(...)`), at roughly a quarter of the profiled
+time of a download. Event dispatch does not appear in the top 25.
