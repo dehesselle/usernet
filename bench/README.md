@@ -90,7 +90,8 @@ with the baseline.
 | echo, 300 idle: p50 µs | 394 | −1% | −55% | −55% | −55% | −55% | **−57%** |
 | download at 20 ms / 2% loss: s | 12.7 | within noise throughout ||||| −9% (noise) |
 
-The first_of fast path (`e8216b9`) measured no gain in any scenario.
+The first_of fast path (`e8216b9`) measured no gain in any scenario and was
+reverted (`fb96ffa`).
 
 Micro (Linux), baseline → `808bfb2`: checksum of 1363 B 14.2 → 3.2 µs;
 building a data segment 21.5 → 6.6 µs; one segment out through the stack
