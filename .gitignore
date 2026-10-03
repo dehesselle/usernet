@@ -15,3 +15,5 @@ src/usernet/version.py
 
 # other
 .hypothesis
+# benchmark output
+bench/results/

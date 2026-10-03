@@ -72,6 +72,7 @@ select = ["E", "F", "I", "UP", "B", "SIM", "RUF", "ASYNC", "TID"]
 "src/usernet/socks/**" = ["TID251"]
 "src/usernet/testing/**" = ["TID251"]
 "tests/**" = ["TID251"]
+"bench/**" = ["TID251"]
 
 # http.py implements httpcore's AsyncNetworkBackend, whose methods take a
 # `timeout` argument. The signature is not ours to choose, and renaming it

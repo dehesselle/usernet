@@ -16,7 +16,7 @@ set -eu
 DEV=${USERNET_TUN_DEV:-usernet0}
 HOST_IP=${USERNET_TUN_HOST:-10.99.0.1}
 PREFIX=24
-MTU=1500
+MTU=${USERNET_TUN_MTU:-1500}
 
 if [ "${1:-}" = "--down" ]; then
     ip link del "$DEV" 2>/dev/null || true
