@@ -107,4 +107,21 @@ After `808bfb2` the profile was led by `enum` flag operations
 download; event dispatch did not appear in the top 25. Plain-int flags
 (`b6dd8f2`) took a segment through the stack from 38 to 26 µs out and from
 24 to 16 µs in. Since then the profile is flat: the TCB's own logic, spread
+
+### Then: verifying received checksums (`878c034`)
+
+Not an optimisation but a correctness fix: received TCP, UDP and ICMP
+checksums were never verified, and RFC 1122 requires it. Its price, against
+`b6dd8f2`:
+
+| | before | after | change |
+|---|---|---|---|
+| download MB/s | 70.2 | 58.4 | −17% (CPU/MiB +22%) |
+| upload MB/s | 101.1 | 100.0 | within noise (only ACKs come in) |
+| echo p50 µs | 155 | 157 | within noise |
+| one segment in through the stack | 16.0 µs | 19.9 µs | +3.9 µs |
+
+The cost is one pass over each received segment, 3.5 µs at full size.
+Against the original baseline, download stays +25% and upload +149%; the
+loss scenario over 20 runs per side reads 8.12 s before, 7.28 s after.
 across many small functions, with no single hot spot left.
