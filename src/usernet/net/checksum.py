@@ -1,25 +1,17 @@
 """RFC 1071 ones-complement checksums.
 
 Used by IPv4, ICMP, TCP, and UDP. This runs on every packet in both
-directions, so the ``struct.Struct`` objects are cached rather than rebuilt
-per call and everything takes a ``memoryview`` to avoid slicing copies.
+directions, so the sum is computed without a Python-level loop over words:
+read as one big-endian integer, the data *is* the sum of its 16-bit words
+weighted by powers of 2**16, and since 2**16 is congruent to 1 modulo 0xFFFF,
+every weight drops out. One ``int.from_bytes`` and one remainder by a
+single-digit divisor -- both linear-time in C -- replace unpacking and adding
+every word.
 """
 
 from __future__ import annotations
 
 import struct
-
-# struct.Struct objects for "!<n>H", built once per distinct word count. Packet
-# sizes cluster tightly around the MSS, so this cache stays small in practice.
-_WORD_STRUCTS: dict[int, struct.Struct] = {}
-
-
-def _words(count: int) -> struct.Struct:
-    s = _WORD_STRUCTS.get(count)
-    if s is None:
-        s = struct.Struct(f"!{count}H")
-        _WORD_STRUCTS[count] = s
-    return s
 
 
 def ones_complement_sum(data: bytes | memoryview, initial: int = 0) -> int:
@@ -32,20 +24,16 @@ def ones_complement_sum(data: bytes | memoryview, initial: int = 0) -> int:
     contributes as the *high* half of the final word.
     """
     view = memoryview(data)
-    n = len(view)
-    total = initial
-
-    full = n >> 1
-    if full:
-        total += sum(_words(full).unpack_from(view))
-    if n & 1:
-        total += view[n - 1] << 8
-
-    # Fold carries. Two passes always suffice: the first can itself carry, but
-    # only ever by one.
-    total = (total & 0xFFFF) + (total >> 16)
-    total = (total & 0xFFFF) + (total >> 16)
-    return total
+    value = int.from_bytes(view, "big")
+    if len(view) & 1:
+        value <<= 8
+    total = value + initial
+    # End-around carry is arithmetic modulo 0xFFFF, except that the result
+    # lives in 1..0xFFFF rather than 0..0xFFFE: a positive sum never folds to
+    # zero. Only an all-zero input, with nothing chained in, sums to 0.
+    if not total:
+        return 0
+    return total % 0xFFFF or 0xFFFF
 
 
 def checksum(data: bytes | memoryview, initial: int = 0) -> int:

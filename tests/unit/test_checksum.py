@@ -84,3 +84,43 @@ def test_single_bit_flip_is_detected(payload: bytes, index: int, bit: int) -> No
 def test_sum_is_never_out_of_range(payload: bytes) -> None:
     assert 0 <= ones_complement_sum(payload) <= 0xFFFF
     assert 0 <= checksum(payload) <= 0xFFFF
+
+
+def _word_sum(data: bytes, initial: int = 0) -> int:
+    """RFC 1071 taken literally: add the words, fold the carries back in.
+
+    The oracle for the arithmetic shortcut in ``ones_complement_sum``, kept
+    deliberately naive so that it is obviously right.
+    """
+    if len(data) % 2:
+        data += b"\x00"
+    total = initial + sum(struct.unpack(f"!{len(data) // 2}H", data))
+    while total > 0xFFFF:
+        total = (total & 0xFFFF) + (total >> 16)
+    return total
+
+
+@given(st.binary(max_size=4096), st.integers(0, 0xFFFF))
+def test_matches_the_literal_word_sum(payload: bytes, initial: int) -> None:
+    assert ones_complement_sum(payload, initial) == _word_sum(payload, initial)
+
+
+def test_matches_the_literal_word_sum_at_the_edges() -> None:
+    """The values where folding and the modulus could disagree: sums that are
+    exact multiples of 0xFFFF, all-ones, and zero with and without a chain."""
+    for payload, initial in [
+        (b"", 0),
+        (b"", 0xFFFF),
+        (b"\x00\x00", 0),
+        (b"\x00\x00", 1),
+        (b"\xff\xff", 0),
+        (b"\xff\xff" * 2, 0),
+        (b"\xff\xfe\x00\x01", 0),
+        (b"\xff\xff", 0xFFFF),
+        (b"\xff", 0xFF),
+        (b"\xff\xff" * 32768, 0),
+    ]:
+        assert ones_complement_sum(payload, initial) == _word_sum(payload, initial), (
+            payload[:8],
+            initial,
+        )
