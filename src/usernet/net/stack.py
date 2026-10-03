@@ -8,6 +8,7 @@ network.
 
 from __future__ import annotations
 
+import heapq
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
@@ -93,6 +94,13 @@ class PyStack:
         self._by_tuple: dict[tuple[int, str, int], SocketId] = {}
         self._udp_by_port: dict[int, SocketId] = {}
 
+        # Timers: a heap of (deadline, sid), so a driver pass costs what is
+        # due rather than what is open. Entries are never removed in place;
+        # _deadlines holds each socket's one current deadline, and a heap
+        # entry that disagrees with it is stale and skipped when it surfaces.
+        self._timers: list[tuple[int, SocketId]] = []
+        self._deadlines: dict[SocketId, int] = {}
+
         self._next_sid = 1
         # Started at a random point in the range, not at the bottom of it.
         # A stack that always opens on 49152 collides with its own previous
@@ -142,13 +150,27 @@ class PyStack:
             self._drop("unsupported-protocol", f"protocol {header.protocol}")
 
     def poll(self, now: int) -> None:
-        for sid, tcb in list(self._tcbs.items()):
-            tcb.on_tick(now)
-            self._harvest(sid, tcb)
+        # Collect first, then tick: each socket fires at most once per call,
+        # as it did when every socket was ticked. A deadline that on_tick
+        # left in the past then shows up as another driver pass, rather
+        # than as a loop that never leaves this method.
+        due: list[SocketId] = []
+        while self._timers and self._timers[0][0] <= now:
+            deadline, sid = heapq.heappop(self._timers)
+            if self._deadlines.get(sid) == deadline:
+                del self._deadlines[sid]
+                due.append(sid)
+        for sid in due:
+            tcb = self._tcbs.get(sid)
+            if tcb is not None:
+                tcb.on_tick(now)
+                self._harvest(sid, tcb)
 
     def poll_at(self) -> int | None:
-        deadlines = [d for tcb in self._tcbs.values() if (d := tcb.next_deadline()) is not None]
-        return min(deadlines) if deadlines else None
+        timers = self._timers
+        while timers and self._deadlines.get(timers[0][1]) != timers[0][0]:
+            heapq.heappop(timers)
+        return timers[0][0] if timers else None
 
     def take_output(self) -> list[bytes]:
         out = self._out
@@ -258,7 +280,13 @@ class PyStack:
         self._harvest(sid, tcb)
 
     def _harvest(self, sid: SocketId, tcb: Tcb) -> None:
-        """Move a TCB's output into the stack's queues."""
+        """Collect what a TCB call produced: segments, events, next deadline.
+
+        Every call into a TCB ends here -- the backend's "every mutating call
+        may produce output" rule -- and a deadline can only move during such
+        a call. That is what lets the timer heap trust a deadline it was
+        handed here until the next harvest says otherwise.
+        """
         for raw in tcb.pending_segments:
             self._out.append(self._wrap(tcb.remote_ip, PROTO_TCP, raw))
         tcb.pending_segments.clear()
@@ -269,6 +297,20 @@ class PyStack:
 
         if tcb.state is State.CLOSED:
             self._release(sid, tcb)
+            return
+
+        deadline = tcb.next_deadline()
+        if deadline is None:
+            self._deadlines.pop(sid, None)
+        elif self._deadlines.get(sid) != deadline:
+            self._deadlines[sid] = deadline
+            heapq.heappush(self._timers, (deadline, sid))
+            # Stale entries are dropped only as they surface, so a deadline
+            # that keeps moving later -- the RTO, restarted by every ACK --
+            # would grow the heap without bound. Rebuild it from the live set.
+            if len(self._timers) > 4 * len(self._deadlines) + 64:
+                self._timers = [(d, s) for s, d in self._deadlines.items()]
+                heapq.heapify(self._timers)
 
     def _translate(self, sid: SocketId, name: str, detail: object) -> Event:
         if name == "connected":
@@ -286,6 +328,7 @@ class PyStack:
 
     def _release(self, sid: SocketId, tcb: Tcb) -> None:
         self._tcbs.pop(sid, None)
+        self._deadlines.pop(sid, None)
         self._by_tuple.pop((tcb.local_port, tcb.remote_ip, tcb.remote_port), None)
 
     def _allocate_port(self, remote_ip: str, remote_port: int) -> int:
