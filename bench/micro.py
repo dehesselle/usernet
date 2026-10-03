@@ -40,7 +40,7 @@ def _packet(
     dport: int,
     seq: int,
     ack: int,
-    flags: Flag,
+    flags: int,
     payload: bytes = b"",
     *,
     mss: int | None = None,
@@ -112,7 +112,7 @@ def bench_checksum(loops: int, data: bytes) -> float:
     return time.perf_counter() - t0
 
 
-def bench_build(loops: int, payload: bytes, flags: Flag) -> float:
+def bench_build(loops: int, payload: bytes, flags: int) -> float:
     t0 = time.perf_counter()
     for _ in range(loops):
         segment = build_tcp(

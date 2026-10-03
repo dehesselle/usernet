@@ -76,7 +76,7 @@ class Harness:
         *,
         seq: int,
         ack: int,
-        flags: Flag,
+        flags: int,
         payload: bytes = b"",
         window: int = 65535,
         mss: int | None = None,

@@ -26,7 +26,7 @@ def tcp_packet(
     destination_port: int = 8080,
     seq: int,
     ack: int = 0,
-    flags: Flag,
+    flags: int,
     window: int = 65535,
     payload: bytes = b"",
     mss: int | None = None,

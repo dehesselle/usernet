@@ -9,9 +9,10 @@ inlined at a call site.
 
 from __future__ import annotations
 
+import dataclasses
 import struct
 from dataclasses import dataclass
-from enum import IntFlag
+from typing import Final
 
 from usernet.errors import ProtocolParseError
 from usernet.net import ipv4
@@ -35,15 +36,31 @@ _SEQ_SIGN = 0x80000000
 _SEQ_SPACE = 0x100000000
 
 
-class Flag(IntFlag):
-    FIN = 0x01
-    SYN = 0x02
-    RST = 0x04
-    PSH = 0x08
-    ACK = 0x10
-    URG = 0x20
-    ECE = 0x40
-    CWR = 0x80
+class Flag:
+    """The TCP control bits, as plain ints.
+
+    A namespace, not a type: a segment's ``flags`` is an ``int``. This was an
+    ``IntFlag``, and every ``&`` on one builds a new enum member -- several
+    per segment in each direction, which in the profile of a bulk download
+    came to a quarter of the time. Use :func:`flag_names` to print them.
+    """
+
+    FIN: Final = 0x01
+    SYN: Final = 0x02
+    RST: Final = 0x04
+    PSH: Final = 0x08
+    ACK: Final = 0x10
+    URG: Final = 0x20
+    ECE: Final = 0x40
+    CWR: Final = 0x80
+
+
+_FLAG_NAMES = tuple(sorted((v, n) for n, v in vars(Flag).items() if n.isupper()))
+
+
+def flag_names(flags: int) -> str:
+    """``"SYN|ACK"``, lowest bit first, as ``IntFlag`` used to print them."""
+    return "|".join(name for value, name in _FLAG_NAMES if flags & value) or "0"
 
 
 # Option kinds
@@ -105,7 +122,7 @@ class TcpSegment:
     destination_port: int
     seq: int
     ack: int
-    flags: Flag
+    flags: int
     window: int
     payload: bytes
     mss: int | None = None
@@ -122,8 +139,19 @@ class TcpSegment:
             length += 1
         return length
 
-    def has(self, flag: Flag) -> bool:
+    def has(self, flag: int) -> bool:
         return bool(self.flags & flag)
+
+    def __repr__(self) -> str:
+        # The generated repr, except that flags are named: a plain int keeps
+        # the hot path cheap, but "flags=18" says nothing in a test failure.
+        fields = ", ".join(
+            f"{f.name}={flag_names(self.flags)}"
+            if f.name == "flags"
+            else f"{f.name}={getattr(self, f.name)!r}"
+            for f in dataclasses.fields(self)
+        )
+        return f"{type(self).__name__}({fields})"
 
 
 def parse_tcp(data: bytes | memoryview) -> TcpSegment:
@@ -157,7 +185,7 @@ def parse_tcp(data: bytes | memoryview) -> TcpSegment:
         destination_port=destination_port,
         seq=seq,
         ack=ack,
-        flags=Flag(flags),
+        flags=flags,
         window=window,
         payload=bytes(view[data_offset:]),
         mss=mss,
@@ -209,7 +237,7 @@ def build_tcp(
     destination_port: int,
     seq: int,
     ack: int,
-    flags: Flag,
+    flags: int,
     window: int,
     payload: bytes = b"",
     mss: int | None = None,
@@ -247,7 +275,7 @@ def build_tcp_ipv4(
     destination_port: int,
     seq: int,
     ack: int,
-    flags: Flag,
+    flags: int,
     window: int,
     payload: bytes = b"",
     mss: int | None = None,
@@ -312,7 +340,7 @@ def _pack_into(
     destination_port: int,
     seq: int,
     ack: int,
-    flags: Flag,
+    flags: int,
     window: int,
     options: bytes,
     payload: bytes,
@@ -328,7 +356,7 @@ def _pack_into(
         seq & SEQ_MASK,
         ack & SEQ_MASK,
         (header_length // 4) << 4,
-        int(flags),
+        flags,
         window,
         0,  # checksum, filled in below
         0,  # urgent pointer

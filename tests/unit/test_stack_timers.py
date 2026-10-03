@@ -26,7 +26,7 @@ def scan(stack: PyStack) -> int | None:
     return min(deadlines) if deadlines else None
 
 
-def from_peer(tcb: Tcb, flags: Flag, seq: int, ack: int, payload: bytes = b"") -> bytes:
+def from_peer(tcb: Tcb, flags: int, seq: int, ack: int, payload: bytes = b"") -> bytes:
     segment = build_tcp(
         source_ip=REMOTE_IP,
         destination_ip=LOCAL_IP,

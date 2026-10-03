@@ -10,7 +10,16 @@ import pytest
 
 from usernet.net.ipv4 import PROTO_TCP, build_ipv4, parse_ipv4, verify_header_checksum
 from usernet.net.stack import PyStack, StackConfig
-from usernet.net.tcp import Flag, build_tcp, build_tcp_ipv4, parse_tcp, seq_add, verify_tcp_checksum
+from usernet.net.tcp import (
+    Flag,
+    TcpSegment,
+    build_tcp,
+    build_tcp_ipv4,
+    flag_names,
+    parse_tcp,
+    seq_add,
+    verify_tcp_checksum,
+)
 
 LOCAL_IP = "172.29.29.5"
 REMOTE_IP = "10.221.188.32"
@@ -87,3 +96,46 @@ def test_everything_the_stack_sends_carries_valid_checksums() -> None:
         assert verify_tcp_checksum(header.source, header.destination, view), "bad TCP checksum"
         identifications.append(header.identification)
     assert len(set(identifications)) == len(identifications)
+
+
+# --- flags -----------------------------------------------------------------
+
+
+def test_parsed_flags_are_a_plain_int() -> None:
+    """Not an enum: IntFlag builds a new member on every ``&``, and that was a
+    quarter of a bulk download. A quiet return to it would cost all of that
+    again without failing anything else."""
+    segment = parse_tcp(
+        build_tcp(
+            source_ip=REMOTE_IP,
+            destination_ip=LOCAL_IP,
+            source_port=443,
+            destination_port=51000,
+            seq=1,
+            ack=1,
+            flags=Flag.SYN | Flag.ACK,
+            window=0xFFFF,
+        )
+    )
+    assert type(segment.flags) is int
+    assert segment.flags == Flag.SYN | Flag.ACK
+
+
+@pytest.mark.parametrize(
+    ("flags", "names"),
+    [
+        (Flag.SYN, "SYN"),
+        (Flag.ACK | Flag.SYN, "SYN|ACK"),
+        (Flag.FIN | Flag.ACK | Flag.PSH, "FIN|PSH|ACK"),
+        (0, "0"),
+        (0xFF, "FIN|SYN|RST|PSH|ACK|URG|ECE|CWR"),
+    ],
+)
+def test_flag_names(flags: int, names: str) -> None:
+    assert flag_names(flags) == names
+
+
+def test_a_segment_prints_its_flags_by_name() -> None:
+    segment = TcpSegment(1, 2, 3, 4, Flag.SYN | Flag.ACK, 5, b"")
+    assert "flags=SYN|ACK," in repr(segment)
+    assert repr(segment).startswith("TcpSegment(source_port=1, destination_port=2, seq=3,")

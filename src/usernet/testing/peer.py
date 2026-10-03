@@ -189,7 +189,7 @@ class TcpPeer:
     def _segment(
         self,
         connection: Connection,
-        flags: Flag,
+        flags: int,
         *,
         payload: bytes = b"",
         mss: int | None = None,

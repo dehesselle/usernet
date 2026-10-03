@@ -1014,7 +1014,7 @@ class Tcb:
         self.persist_deadline = None
         self.time_wait_deadline = now + self.config.time_wait_ms
 
-    def _emit(self, flags: Flag, now: int, *, syn_options: bool = False) -> None:
+    def _emit(self, flags: int, now: int, *, syn_options: bool = False) -> None:
         """Send a control segment. Data and FIN go out through :meth:`_pump`."""
         seq = self.snd_nxt
         self._transmit(seq, flags, b"", syn_options=syn_options)
@@ -1025,7 +1025,7 @@ class Tcb:
     def _transmit(
         self,
         seq: int,
-        flags: Flag,
+        flags: int,
         payload: bytes,
         *,
         syn_options: bool = False,
@@ -1055,7 +1055,7 @@ class Tcb:
             self.ack_deadline = None
             self._segments_since_ack = 0
 
-    def _window_field(self, flags: Flag) -> int:
+    def _window_field(self, flags: int) -> int:
         # RFC 7323: the SYN's own window is unscaled, because the shift is only
         # agreed once both SYNs have crossed.
         if flags & Flag.SYN:
