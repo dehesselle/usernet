@@ -15,6 +15,7 @@ from usernet.errors import ProtocolParseError
 from usernet.net.checksum import checksum
 
 HEADER = struct.Struct("!BBHHHBBH4s4s")
+_CHECKSUM = struct.Struct("!H")
 MIN_HEADER_LEN = 20
 DEFAULT_TTL = 64
 
@@ -127,20 +128,50 @@ def build_ipv4(
     and never fragment on send, which is what lets path-MTU problems surface
     as ICMP frag-needed rather than as silent corruption.
     """
-    flags_fragment = (FLAG_DONT_FRAGMENT << 13) if dont_fragment else 0
-    total_length = MIN_HEADER_LEN + len(payload)
+    packet = bytearray(MIN_HEADER_LEN + len(payload))
+    packet[MIN_HEADER_LEN:] = payload
+    pack_header_into(
+        packet,
+        source=ipaddress.IPv4Address(source).packed,
+        destination=ipaddress.IPv4Address(destination).packed,
+        protocol=protocol,
+        identification=identification,
+        ttl=ttl,
+        dont_fragment=dont_fragment,
+    )
+    return bytes(packet)
 
-    header = HEADER.pack(
+
+def pack_header_into(
+    packet: bytearray,
+    *,
+    source: bytes,
+    destination: bytes,
+    protocol: int,
+    identification: int = 0,
+    ttl: int = DEFAULT_TTL,
+    dont_fragment: bool = True,
+) -> None:
+    """Write the header, checksum included, over the first 20 bytes of ``packet``.
+
+    The payload must already be in place behind it: the total length is taken
+    from the buffer. Every IPv4 packet we send has its header written here, so
+    the layout exists exactly once, whichever builder assembles the packet.
+    """
+    HEADER.pack_into(
+        packet,
+        0,
         0x45,  # version 4, 5 words of header (no options)
         0,
-        total_length,
+        len(packet),
         identification,
-        flags_fragment,
+        (FLAG_DONT_FRAGMENT << 13) if dont_fragment else 0,
         ttl,
         protocol,
         0,  # checksum, filled in below
-        ipaddress.IPv4Address(source).packed,
-        ipaddress.IPv4Address(destination).packed,
+        source,
+        destination,
     )
-    computed = checksum(header)
-    return header[:10] + struct.pack("!H", computed) + header[12:] + payload
+    with memoryview(packet) as view:
+        computed = checksum(view[:MIN_HEADER_LEN])
+    _CHECKSUM.pack_into(packet, 10, computed)

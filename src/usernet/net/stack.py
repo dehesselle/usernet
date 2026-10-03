@@ -41,7 +41,7 @@ from usernet.net.ipv4 import (
     verify_header_checksum,
 )
 from usernet.net.tcb import State, Tcb, TcbConfig
-from usernet.net.tcp import parse_tcp
+from usernet.net.tcp import build_tcp_ipv4, parse_tcp
 from usernet.net.udp import build_udp, parse_udp
 
 DEFAULT_MTU = 1406
@@ -287,8 +287,23 @@ class PyStack:
         a call. That is what lets the timer heap trust a deadline it was
         handed here until the next harvest says otherwise.
         """
-        for raw in tcb.pending_segments:
-            self._out.append(self._wrap(tcb.remote_ip, PROTO_TCP, raw))
+        for segment in tcb.pending_segments:
+            self._out.append(
+                build_tcp_ipv4(
+                    source_ip=tcb.local_ip,
+                    destination_ip=tcb.remote_ip,
+                    source_port=segment.source_port,
+                    destination_port=segment.destination_port,
+                    seq=segment.seq,
+                    ack=segment.ack,
+                    flags=segment.flags,
+                    window=segment.window,
+                    payload=segment.payload,
+                    mss=segment.mss,
+                    window_scale=segment.window_scale,
+                    identification=self._next_ip_id(),
+                )
+            )
         tcb.pending_segments.clear()
 
         for name, detail in tcb.pending_events:
@@ -460,14 +475,17 @@ class PyStack:
     # --- helpers -----------------------------------------------------------
 
     def _wrap(self, destination: str, protocol: int, payload: bytes) -> bytes:
-        self._ip_id = (self._ip_id + 1) & 0xFFFF
         return build_ipv4(
             source=self.config.local_ip,
             destination=destination,
             protocol=protocol,
             payload=payload,
-            identification=self._ip_id,
+            identification=self._next_ip_id(),
         )
+
+    def _next_ip_id(self) -> int:
+        self._ip_id = (self._ip_id + 1) & 0xFFFF
+        return self._ip_id
 
     def _drop(self, reason: str, summary: str) -> None:
         if self.trace_drops:

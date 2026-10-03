@@ -42,7 +42,6 @@ from usernet.net.tcp import (
     MAX_WINDOW_SCALE,
     Flag,
     TcpSegment,
-    build_tcp,
     seq_add,
     seq_diff,
     seq_geq,
@@ -249,7 +248,10 @@ class Tcb:
     _segments_since_ack: int = 0
     _write_blocked: bool = False
 
-    pending_segments: list[bytes] = field(default_factory=list)
+    pending_segments: list[TcpSegment] = field(default_factory=list)
+    """Segments to send, as fields. The stack encodes them, because the IP
+    layer around each one -- addresses, identification -- is the stack's:
+    the TCB decides what to say, not how it is framed."""
     pending_events: list[tuple[str, object]] = field(default_factory=list)
     """``(name, detail)`` pairs the stack translates into typed events. Kept as
     plain tuples so ``usernet.net.tcb`` need not import the event classes."""
@@ -1034,9 +1036,7 @@ class Tcb:
                 self.snd_max = end
 
         self.pending_segments.append(
-            build_tcp(
-                source_ip=self.local_ip,
-                destination_ip=self.remote_ip,
+            TcpSegment(
                 source_port=self.local_port,
                 destination_port=self.remote_port,
                 seq=seq,

@@ -15,10 +15,12 @@ from dataclasses import dataclass
 from enum import IntFlag
 
 from usernet.errors import ProtocolParseError
+from usernet.net import ipv4
 from usernet.net.checksum import checksum, ones_complement_sum, pseudo_header_sum
 
 HEADER = struct.Struct("!HHIIBBHHH")
 MIN_HEADER_LEN = 20
+_CHECKSUM = struct.Struct("!H")
 
 # The window field is 16 bits. Never put more than this on the wire: claiming a
 # window we cannot honour invites the peer to overrun the receive buffer.
@@ -91,11 +93,13 @@ def seq_add(a: int, n: int) -> int:
 
 @dataclass(frozen=True, slots=True)
 class TcpSegment:
-    """A parsed TCP segment.
+    """A TCP segment as fields: what :func:`parse_tcp` returns, and what a
+    TCB emits for the stack to encode.
 
     Options are reduced to the few we act on. Anything else -- timestamps,
     SACK blocks -- is parsed for length and skipped, so an unexpected option
-    can never desynchronise the option walk.
+    can never desynchronise the option walk. Of these, only ``mss`` and
+    ``window_scale`` are ever sent.
     """
 
     source_port: int
@@ -217,6 +221,76 @@ def build_tcp(
     ``mss`` and ``window_scale`` are only meaningful on a SYN; both are
     negotiated once and never restated.
     """
+    options = _options(mss, window_scale)
+    segment = bytearray(MIN_HEADER_LEN + len(options) + len(payload))
+    _pack_into(
+        segment,
+        0,
+        ipaddress.IPv4Address(source_ip).packed,
+        ipaddress.IPv4Address(destination_ip).packed,
+        source_port,
+        destination_port,
+        seq,
+        ack,
+        flags,
+        window,
+        options,
+        payload,
+    )
+    return bytes(segment)
+
+
+def build_tcp_ipv4(
+    *,
+    source_ip: str,
+    destination_ip: str,
+    source_port: int,
+    destination_port: int,
+    seq: int,
+    ack: int,
+    flags: Flag,
+    window: int,
+    payload: bytes = b"",
+    mss: int | None = None,
+    window_scale: int | None = None,
+    identification: int = 0,
+) -> bytes:
+    """A TCP segment in its IPv4 packet: :func:`build_tcp` inside
+    :func:`~usernet.net.ipv4.build_ipv4`, built in one buffer.
+
+    Byte for byte the same as composing the two, but the payload is copied
+    once rather than once per layer. This is the send path for every segment
+    the stack emits, so those copies were much of its cost.
+    """
+    options = _options(mss, window_scale)
+    source = ipaddress.IPv4Address(source_ip).packed
+    destination = ipaddress.IPv4Address(destination_ip).packed
+    packet = bytearray(ipv4.MIN_HEADER_LEN + MIN_HEADER_LEN + len(options) + len(payload))
+    _pack_into(
+        packet,
+        ipv4.MIN_HEADER_LEN,
+        source,
+        destination,
+        source_port,
+        destination_port,
+        seq,
+        ack,
+        flags,
+        window,
+        options,
+        payload,
+    )
+    ipv4.pack_header_into(
+        packet,
+        source=source,
+        destination=destination,
+        protocol=ipv4.PROTO_TCP,
+        identification=identification,
+    )
+    return bytes(packet)
+
+
+def _options(mss: int | None, window_scale: int | None) -> bytes:
     options = b""
     if mss is not None:
         options += struct.pack("!BBH", OPT_MSS, 4, mss)
@@ -227,29 +301,47 @@ def build_tcp(
     # Options must be padded to a 4-byte boundary with NOPs/EOL.
     if len(options) % 4:
         options += b"\x00" * (4 - len(options) % 4)
+    return options
 
-    data_offset = (MIN_HEADER_LEN + len(options)) // 4
-    header = HEADER.pack(
+
+def _pack_into(
+    buffer: bytearray,
+    offset: int,
+    source: bytes,
+    destination: bytes,
+    source_port: int,
+    destination_port: int,
+    seq: int,
+    ack: int,
+    flags: Flag,
+    window: int,
+    options: bytes,
+    payload: bytes,
+) -> None:
+    """Write a whole segment from ``offset`` to the end of ``buffer``, checksum
+    included. The one place the TCP header layout is written down."""
+    header_length = MIN_HEADER_LEN + len(options)
+    HEADER.pack_into(
+        buffer,
+        offset,
         source_port,
         destination_port,
         seq & SEQ_MASK,
         ack & SEQ_MASK,
-        data_offset << 4,
+        (header_length // 4) << 4,
         int(flags),
         window,
         0,  # checksum, filled in below
         0,  # urgent pointer
     )
+    start = offset + MIN_HEADER_LEN
+    buffer[start : start + len(options)] = options
+    buffer[offset + header_length :] = payload
 
-    segment = header + options + payload
-    partial = pseudo_header_sum(
-        ipaddress.IPv4Address(source_ip).packed,
-        ipaddress.IPv4Address(destination_ip).packed,
-        proto=6,
-        length=len(segment),
-    )
-    computed = checksum(segment, partial)
-    return segment[:16] + struct.pack("!H", computed) + segment[18:]
+    partial = pseudo_header_sum(source, destination, proto=6, length=len(buffer) - offset)
+    with memoryview(buffer) as view:
+        computed = checksum(view[offset:], partial)
+    _CHECKSUM.pack_into(buffer, offset + 16, computed)
 
 
 def verify_tcp_checksum(source_ip: str, destination_ip: str, segment: bytes | memoryview) -> bool:
