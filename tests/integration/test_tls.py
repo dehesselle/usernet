@@ -163,7 +163,7 @@ async def test_a_hostname_mismatch_is_refused(certs: Path) -> None:
 
 
 async def test_verification_can_be_switched_off(certs: Path) -> None:
-    """`usernet get --insecure` depends on this working, and only this."""
+    """A caller that skips verification depends on this working, and only this."""
     server = TlsServer(certs)
     await server.start()
     try:

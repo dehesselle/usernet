@@ -1,8 +1,8 @@
 """Small asyncio helpers shared across layers.
 
-Lives at the top level because both ``cstp`` and ``runtime`` need it, and
-having the lower layer import from the higher one to get it would invert the
-dependency the whole design rests on.
+Lives at the top level rather than in ``runtime`` because a tunnel's link
+implementation may need it too, and a link importing from the layer that
+drives it would invert the dependency the whole design rests on.
 """
 
 from __future__ import annotations

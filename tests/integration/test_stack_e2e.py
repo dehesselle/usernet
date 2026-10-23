@@ -2,7 +2,7 @@
 
 No TLS, no gateway, no network -- but the real IPv4 codec, the real TCP state
 machine, and the real asyncio driver, talking through the same
-:class:`~usernet.link.IpLink` interface the CSTP tunnel presents.
+:class:`~usernet.link.IpLink` interface a real tunnel presents.
 """
 
 from __future__ import annotations
@@ -48,7 +48,7 @@ async def http() -> AsyncIterator[tuple[VirtualLink, Driver, TcpPeer]]:
 async def test_a_complete_http_request_and_response(
     http: tuple[VirtualLink, Driver, TcpPeer],
 ) -> None:
-    """The thin slice's whole reason for existing."""
+    """The one thing everything else exists to make possible."""
     _link, driver, _peer = http
 
     stream = await driver.connect(SERVER_IP, 80)

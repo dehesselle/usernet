@@ -5,9 +5,8 @@ how connections are made. Filling it in gets connection pooling, keep-alive,
 redirects, HTTP/1.1 framing, and the whole httpx API for the price of three
 methods, which is a far better trade than writing an HTTP client.
 
-The plan expected to pass ``network_backend`` to ``httpx.AsyncHTTPTransport``.
-It does not accept one -- the guard in ``tests/unit/test_httpcore_seam.py``
-caught that on the first run. So :class:`TunnelTransport` drives an
+``httpx.AsyncHTTPTransport`` does not accept a ``network_backend``, so
+:class:`PoolTransport` drives an
 ``httpcore.AsyncConnectionPool`` itself, which *does* take a backend and is
 public httpcore API, behind ``httpx.AsyncBaseTransport``, which is httpx's
 documented extension point. No private attribute is touched anywhere, and the
@@ -295,8 +294,8 @@ class TunnelTransport(PoolTransport):
     ``verify`` belongs here rather than on the client. ``httpx.AsyncClient``
     only applies its own ``verify`` to the transport *it* builds, so passing
     one alongside a custom transport silently does nothing -- which would make
-    ``--insecure`` and ``--cacert`` look like they worked while changing
-    nothing at all.
+    a caller's "skip verification" or "trust this CA" look like it worked
+    while changing nothing at all.
     """
 
     def __init__(

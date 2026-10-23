@@ -208,7 +208,8 @@ def build_reply(reply: Reply, host: str = "0.0.0.0", port: int = 0) -> bytes:
 
 # --- the client half ---------------------------------------------------------
 #
-# Needed by ``usernet nc --via``, which talks to a proxy rather than serving one.
+# Needed by :mod:`usernet.socks.client`, which talks to a proxy rather than
+# serving one.
 # Keeping both halves here makes the pair testable against each other.
 
 
@@ -283,7 +284,7 @@ def error_for(reply: Reply, target: str) -> NetworkError:
     if reply is Reply.CONNECTION_REFUSED:
         return ConnectionRefused(f"{target} refused the connection")
     if reply is Reply.NOT_ALLOWED:
-        return RouteNotAllowed(f"the proxy will not route to {target}")
+        return RouteNotAllowed(target)
     if reply is Reply.HOST_UNREACHABLE:
         return HostUnreachable(f"{target} is unreachable through the proxy")
     if reply is Reply.NETWORK_UNREACHABLE:

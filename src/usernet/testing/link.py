@@ -1,8 +1,8 @@
 """An in-memory :class:`~usernet.link.IpLink` carrying IP packets to a peer.
 
-Stands in for the CSTP tunnel, so the stack and driver can be exercised with
+Stands in for a real tunnel, so the stack and driver can be exercised with
 no TLS, no gateway, and no network -- while still going through exactly the
-same interface the real tunnel presents.
+same interface a real tunnel presents.
 """
 
 from __future__ import annotations

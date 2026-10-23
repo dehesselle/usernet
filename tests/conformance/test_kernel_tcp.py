@@ -139,7 +139,7 @@ async def test_our_close_is_completed_by_the_kernel(driver: Driver, serve: Serve
 
 async def test_half_close_lets_the_peer_keep_sending(driver: Driver, serve: Serve) -> None:
     """The shape every request/response protocol uses, and the one that broke
-    `usernet nc`: shutting down our write direction must not stop the peer's."""
+    an nc-style relay: shutting down our write direction must not stop the peer's."""
 
     async def handler(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         request = await reader.read()  # read to our EOF, then answer

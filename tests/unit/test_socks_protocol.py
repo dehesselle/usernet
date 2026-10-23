@@ -37,6 +37,7 @@ from usernet.socks.protocol import (
     build_method_reply,
     build_reply,
     choose_method,
+    error_for,
     parse_request,
     parse_userpass,
     reply_for,
@@ -219,3 +220,11 @@ def test_an_unusable_bound_address_does_not_break_the_reply() -> None:
 )
 def test_failures_map_onto_the_closest_reply_code(error: Exception, expected: Reply) -> None:
     assert reply_for(error) is expected
+
+
+def test_a_refused_route_names_the_destination() -> None:
+    """The proxy's "not allowed" comes back as the error a local check raises."""
+    error = error_for(Reply.NOT_ALLOWED, "10.9.8.7:443")
+    assert isinstance(error, RouteNotAllowed)
+    assert error.dst == "10.9.8.7:443"
+    assert str(error) == "10.9.8.7:443 is outside the tunnel's split-include routes"

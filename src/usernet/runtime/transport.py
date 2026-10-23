@@ -19,8 +19,9 @@ directions:
   than allowed to accumulate.
 
 Deliberately generic over :class:`ByteStream` rather than tied to ``TcpStream``:
-a TLS session inside the tunnel is the same shape, so ``open_tls_connection``
-reuses all of this instead of growing a second implementation.
+a :class:`~usernet.runtime.tls.TlsStream` inside the tunnel is the same shape,
+so it gets a reader/writer pair from this same code instead of a second
+implementation.
 """
 
 from __future__ import annotations

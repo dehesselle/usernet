@@ -10,9 +10,9 @@ arrive as an argument. Only one pattern is built in, because
 ``password=<something>`` is universal and forgetting it once is expensive.
 
 :func:`configure` attaches to several logger names at once, and a client is
-expected to name both its own and ``usernet``. Miss the second and the stack's
-own diagnostics -- the retransmits, the window stalls, the dropped packets --
-go nowhere, which is exactly when they are wanted.
+expected to name both its own and ``usernet``. Miss the second and this
+package's own diagnostics -- a reassigned tunnel address, a failed driver,
+every SOCKS rejection -- go nowhere, which is exactly when they are wanted.
 """
 
 from __future__ import annotations

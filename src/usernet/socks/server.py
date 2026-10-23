@@ -96,7 +96,7 @@ class Socks5Server:
             raise NetworkError(
                 f"refusing to bind {host}: a SOCKS listener on a non-loopback address "
                 f"lets anything that can reach this machine into the VPN. Pass "
-                f"allow_non_loopback (--socks-allow-remote) and set credentials if "
+                f"allow_non_loopback and set credentials if "
                 f"that is genuinely what you want."
             )
 
@@ -128,8 +128,8 @@ class Socks5Server:
 
         Bounded on purpose, in both directions. ``Server.wait_closed`` waits
         for in-flight handlers from Python 3.12 on, so waiting on it alone
-        means an idle SSH session makes Ctrl-C on ``usernet up`` do nothing at
-        all. Cancelling immediately is no better: a relay that is *already*
+        means an idle SSH session makes Ctrl-C in the hosting program do
+        nothing at all. Cancelling immediately is no better: a relay that is *already*
         finishing gets a RST instead of its FIN exchange. So give them ``grace``
         seconds to end by themselves, then cancel the stragglers.
         """
@@ -278,8 +278,8 @@ class Socks5Server:
             if self._resolver is None:
                 raise SocksRejection(
                     Reply.HOST_UNREACHABLE,
-                    f"cannot resolve {host!r}: this tunnel advertises no DNS servers, "
-                    f"so there is nothing to resolve against. Use an address, or "
+                    f"cannot resolve {host!r}: this tunnel has no resolver, and names "
+                    f"are never sent to the host's. Use an address, or "
                     f"--socks5 rather than --socks5-hostname.",
                 )
             try:

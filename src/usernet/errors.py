@@ -57,10 +57,7 @@ class RouteNotAllowed(NetworkError):
     """
 
     def __init__(self, dst: str) -> None:
-        super().__init__(
-            f"{dst} is outside the tunnel's split-include routes; "
-            f"use --route-policy all or --route-add to override"
-        )
+        super().__init__(f"{dst} is outside the tunnel's split-include routes")
         self.dst = dst
 
 

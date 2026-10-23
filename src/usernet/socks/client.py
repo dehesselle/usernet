@@ -1,7 +1,7 @@
 """A SOCKS5 client, for reaching the VPN through a proxy someone else is running.
 
-``usernet nc --via`` uses this so an ``ssh`` session can borrow a tunnel that is
-already up, instead of authenticating and building a second one. That matters
+An ``nc``-style relay uses this so an ``ssh`` session can borrow a tunnel that
+is already up, instead of authenticating and building a second one. That matters
 more than convenience: gateways enforce concurrent-session limits, and one
 login per ssh invocation exhausts them quickly.
 """
@@ -74,7 +74,7 @@ async def _negotiate(
     if method == AUTH_UNACCEPTABLE:
         raise NetworkError(
             "the proxy accepted none of our authentication methods"
-            + ("" if username else "; it may require credentials (--via-auth USER:PASS)")
+            + ("" if username else "; it may require a username and password")
         )
     if method == AUTH_USERPASS:
         if username is None:

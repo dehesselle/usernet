@@ -67,9 +67,10 @@ def _ooo_cap(buffer: int) -> int:
 class TcpStream:
     """An open connection, presented as async read/write.
 
-    Deliberately not an ``asyncio.Transport`` yet: the thin slice needs only
-    enough surface to make a request and read a response. The full
-    ``StreamReader``/``StreamWriter`` bridge arrives with the hardening pass.
+    Deliberately not an ``asyncio.Transport``: it is the minimal byte-stream
+    shape everything else in the project builds on. Code that wants the
+    stdlib's ``StreamReader``/``StreamWriter`` pair gets one from
+    :func:`usernet.runtime.transport.wrap_stream`.
     """
 
     def __init__(self, driver: Driver, sid: SocketId, peer: tuple[str, int]) -> None:
