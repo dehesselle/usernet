@@ -8,12 +8,13 @@ machine, and the real asyncio driver, talking through the same
 from __future__ import annotations
 
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 
 import pytest
 import pytest_asyncio
 
 from usernet.errors import ConnectionRefused, ConnectionTimeout
+from usernet.net.checksum import checksum
 from usernet.net.ipv4 import PROTO_TCP, build_ipv4, parse_ipv4
 from usernet.net.stack import StackConfig
 from usernet.net.tcb import TcbConfig
@@ -391,17 +392,48 @@ async def test_refused_connection_surfaces_as_connection_refused() -> None:
         await driver.aclose()
 
 
-async def test_dropped_packets_are_logged(caplog: pytest.LogCaptureFixture) -> None:
-    """A silent drop is the hardest thing to find in a hang, so it is not silent."""
+def misaddressed() -> bytes:
+    return build_ipv4(source=SERVER_IP, destination="10.0.0.99", protocol=PROTO_TCP, payload=b"")
 
-    class MisaddressingPeer(TcpPeer):
+
+def fragment() -> bytes:
+    """A first fragment: More Fragments set, with a header checksum that holds."""
+    header = bytearray(
+        build_ipv4(
+            source=SERVER_IP,
+            destination=CLIENT_IP,
+            protocol=PROTO_TCP,
+            payload=b"",
+            dont_fragment=False,
+        )
+    )
+    header[6] |= 0x20
+    header[10:12] = b"\x00\x00"
+    header[10:12] = checksum(header).to_bytes(2, "big")
+    return bytes(header)
+
+
+@pytest.mark.parametrize(
+    ("stray", "level", "message"),
+    [
+        (misaddressed, logging.DEBUG, f"dropped (not-for-us): {SERVER_IP} > 10.0.0.99"),
+        (fragment, logging.WARNING, f"dropped (ip-fragment): from {SERVER_IP}, offset 0"),
+    ],
+)
+async def test_dropped_packets_are_logged(
+    caplog: pytest.LogCaptureFixture, stray: Callable[[], bytes], level: int, message: str
+) -> None:
+    """A silent drop is the hardest thing to find in a hang, so it is not silent.
+
+    A fragment is a warning: we never cause one, so its arrival means the path
+    is not what the tunnel says it is.
+    """
+
+    class StrayPeer(TcpPeer):
         def handle(self, packet: bytes) -> list[bytes]:
-            stray = build_ipv4(
-                source=self.ip, destination="10.0.0.99", protocol=PROTO_TCP, payload=b""
-            )
-            return [stray, *super().handle(packet)]
+            return [stray(), *super().handle(packet)]
 
-    peer = MisaddressingPeer(ip=SERVER_IP, port=80, handler=http_handler(b"ok"))
+    peer = StrayPeer(ip=SERVER_IP, port=80, handler=http_handler(b"ok"))
     _link, driver = make(peer)
     try:
         with caplog.at_level(logging.DEBUG, logger="usernet.net"):
@@ -411,6 +443,6 @@ async def test_dropped_packets_are_logged(caplog: pytest.LogCaptureFixture) -> N
     finally:
         await driver.aclose()
 
-    drops = [r.getMessage() for r in caplog.records if r.name == "usernet.net"]
+    drops = [(r.levelno, r.getMessage()) for r in caplog.records if r.name == "usernet.net"]
     assert drops
-    assert drops[0] == f"dropped (not-for-us): {SERVER_IP} > 10.0.0.99"
+    assert drops[0] == (level, message)

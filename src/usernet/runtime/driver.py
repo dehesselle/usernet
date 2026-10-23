@@ -316,7 +316,10 @@ class Driver:
             if waiter is not None and not waiter.done():
                 waiter.set_result(event.recv_ms)
         elif isinstance(event, PacketDropped):
-            drop_log.debug("dropped (%s): %s", event.reason, event.summary)
+            # A fragment means an assumption broke: we set DF and size from the
+            # MTU, so the path is not behaving the way the tunnel says it does.
+            level = logging.WARNING if event.reason == "ip-fragment" else logging.DEBUG
+            drop_log.log(level, "dropped (%s): %s", event.reason, event.summary)
 
     def _set(self, sid: SocketId, name: str) -> None:
         stream = self._streams.get(sid)

@@ -65,17 +65,20 @@ received fragments are dropped.
 Logger names are `usernet.runtime` (the driver and asyncio transport),
 `usernet.net` (packets the stack discarded) and `usernet.socks` (the SOCKS
 server). Use `usernet.log.configure` with `"usernet"` in `loggers` to see
-them. Raise `usernet.net` to `INFO` to silence drops alone.
+them. Raise `usernet.net` to `INFO` to silence routine drops alone; dropped
+fragments still show.
 
 What is logged:
 
 - **error**: the driver task failed.
-- **warning**: the tunnel address changed; a SOCKS request was rejected, its
-  connect failed, the client sent a malformed request, or a relay ended early.
+- **warning**: the tunnel address changed; an IP fragment arrived and was
+  dropped (we set DF and size from the MTU, so a fragment means the path does
+  not match the tunnel's MTU); a SOCKS request was rejected, its connect
+  failed, the client sent a malformed request, or a relay ended early.
 - **info**: each SOCKS connection opened.
-- **debug**: every packet the stack discarded, as
+- **debug**: every other packet the stack discarded, as
   `dropped (<reason>): <summary>`. Reasons include `bad-ip-checksum`, `bad-tcp-checksum`,
-  `ip-fragment`, `not-for-us`, `no-socket`, `malformed-tcp` and
+  `not-for-us`, `no-socket`, `malformed-tcp` and
   `icmp-ignored`; `pmtu-clamp` reports an MSS lowered by ICMP. Also SOCKS
   hostname resolution.
 - **exception**: a protocol's flow-control callback raised inside the asyncio
