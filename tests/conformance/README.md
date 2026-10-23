@@ -58,7 +58,7 @@ errors, and they fail in completely different ways.
 ## What the addresses mean
 
 | | |
-|---|---|
+| --- | --- |
 | `usernet0` | the tun device; packets written to its fd enter the kernel as if from a wire |
 | `10.99.0.1` | the kernel's end — real Linux TCP listens and answers here |
 | `10.99.0.2` | us; the address our stack believes it has |
@@ -71,7 +71,7 @@ Every test prints its packet trace during teardown. pytest discards captured out
 passing tests and shows it for failing ones, so a green run stays quiet and a red one comes
 with the last 400 packets already formatted:
 
-```
+```text
   0.0121 -> tcp  10.99.0.2:49153 > 10.99.0.1:41234 [S  ] seq=0 ack=- win=65535 len=0 mss=1460 ws=3 (44B)
   0.0123 <- tcp  10.99.0.1:41234 > 10.99.0.2:49153 [SA ] seq=0 ack=1 win=65160 len=0 mss=1460 ws=7 (44B)
   0.0124 -> tcp  10.99.0.2:49153 > 10.99.0.1:41234 [A  ] seq=1 ack=1 win=65535 len=0 (40B)
