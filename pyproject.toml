@@ -30,7 +30,6 @@ dev = [
     "ruff>=0.6",
     "mypy>=1.11",
     "httpx>=0.27,<0.29",    # exercises usernet.http
-    "scapy>=2.5",           # header-field oracle; build/dissect needs no npcap
     "trustme>=1.1",         # self-signed certs for the TLS endpoint
 ]
 

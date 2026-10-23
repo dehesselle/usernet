@@ -62,9 +62,10 @@ received fragments are dropped.
 
 ## Diagnostics
 
-Logger names are `usernet.runtime` (the driver and asyncio transport) and
-`usernet.socks` (the SOCKS server). Use `usernet.log.configure` with
-`"usernet"` in `loggers` to see them.
+Logger names are `usernet.runtime` (the driver and asyncio transport),
+`usernet.net` (packets the stack discarded) and `usernet.socks` (the SOCKS
+server). Use `usernet.log.configure` with `"usernet"` in `loggers` to see
+them. Raise `usernet.net` to `INFO` to silence drops alone.
 
 What is logged:
 
@@ -72,23 +73,24 @@ What is logged:
 - **warning**: the tunnel address changed; a SOCKS request was rejected, its
   connect failed, the client sent a malformed request, or a relay ended early.
 - **info**: each SOCKS connection opened.
-- **debug**: SOCKS hostname resolution.
+- **debug**: every packet the stack discarded, as
+  `dropped (<reason>): <summary>`. Reasons include `bad-ip-checksum`, `bad-tcp-checksum`,
+  `ip-fragment`, `not-for-us`, `no-socket`, `malformed-tcp` and
+  `icmp-ignored`; `pmtu-clamp` reports an MSS lowered by ICMP. Also SOCKS
+  hostname resolution.
 - **exception**: a protocol's flow-control callback raised inside the asyncio
   transport.
 
-The stack itself does not log. Retransmissions and dropped packets show up in
-a capture, not in the log.
+Retransmissions are not logged; they show up in a capture.
 
 **Packet capture.** Write every packet in both directions with
 `usernet.pcap.PcapWriter`, then open the file in Wireshark. This is the first
 thing to do for any "it hangs" report.
 
-**Drop tracing.** With `PyStack.trace_drops = True`, the stack emits a
-`PacketDropped(reason, summary)` event for every packet it discards. Possible
-reasons include `bad-ip-checksum`, `bad-tcp-checksum`, `ip-fragment`,
-`not-for-us`, `no-socket`, `malformed-tcp` and `pmtu-clamp`. The `Driver`
-ignores these events, so this is only useful when you drive `PyStack`
-yourself, as in tests.
+**Drop tracing.** The drops above come from `PacketDropped(reason, summary)`
+events, which the stack emits when `PyStack.trace_drops` is set. The `Driver`
+always sets it and logs the events. When you drive `PyStack` yourself, set it
+and read the events from `take_events()`.
 
 **Counters.** `TcpStream` has `rx` and `tx`, `Socks5Server` has
 `connections`, `rejected`, `active` and `relays`, and `TunnelTransport` has

@@ -94,6 +94,7 @@ def test_configure_attaches_to_every_named_logger() -> None:
         for name in ("usernet", "pyac"):
             logger = logging.getLogger(name)
             logger.handlers.clear()
+            logger.setLevel(logging.NOTSET)
             logger.propagate = True
 
     output = stream.getvalue()

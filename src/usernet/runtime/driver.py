@@ -28,6 +28,7 @@ from usernet.errors import ConnectionTimeout, NetworkError, ResolveError
 from usernet.link import IpLink
 from usernet.net.events import (
     IcmpEchoReply,
+    PacketDropped,
     SocketClosed,
     SocketConnected,
     SocketError,
@@ -42,6 +43,10 @@ from usernet.net.tcp import DEFAULT_MSS
 from usernet.resolve import Resolver, is_address
 
 log = logging.getLogger("usernet.runtime")
+
+# Packets the stack discarded, under their own name so they can be silenced
+# without losing the rest: one line per drop is a lot during a port scan.
+drop_log = logging.getLogger("usernet.net")
 
 # Bounds how long the driver may sleep with nothing to do. Doubles as a
 # watchdog tick and as the reason an idle loop still notices Ctrl-C on Windows,
@@ -206,7 +211,7 @@ class Driver:
             tcb=tcb,
             rng=lambda: secrets.randbits(32),
         )
-        self.stack = PyStack(self.config)
+        self.stack = self._new_stack()
 
         self.now = monotonic_ms()
         self._streams: dict[SocketId, TcpStream] = {}
@@ -310,6 +315,8 @@ class Driver:
             waiter = self._echo_waiters.pop((event.ident, event.seq), None)
             if waiter is not None and not waiter.done():
                 waiter.set_result(event.recv_ms)
+        elif isinstance(event, PacketDropped):
+            drop_log.debug("dropped (%s): %s", event.reason, event.summary)
 
     def _set(self, sid: SocketId, name: str) -> None:
         stream = self._streams.get(sid)
@@ -342,7 +349,14 @@ class Driver:
             f"connections opened under the old one cannot continue"
         )
         self.config = replace(self.config, local_ip=address)
-        self.stack = PyStack(self.config)
+        self.stack = self._new_stack()
+
+    def _new_stack(self) -> PyStack:
+        stack = PyStack(self.config)
+        # Costs one event per discarded packet and nothing otherwise, and a
+        # silent drop is the hardest thing to find in a hang.
+        stack.trace_drops = True
+        return stack
 
     def _fail_all(self, reason: str) -> None:
         for sid in list(self._streams):

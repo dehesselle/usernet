@@ -11,7 +11,7 @@ arrive as an argument. Only one pattern is built in, because
 
 :func:`configure` attaches to several logger names at once, and a client is
 expected to name both its own and ``usernet``. Miss the second and this
-package's own diagnostics -- a reassigned tunnel address, a failed driver,
+package's own diagnostics -- the dropped packets, a reassigned tunnel address,
 every SOCKS rejection -- go nowhere, which is exactly when they are wanted.
 """
 

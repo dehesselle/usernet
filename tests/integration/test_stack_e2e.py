@@ -7,13 +7,14 @@ machine, and the real asyncio driver, talking through the same
 
 from __future__ import annotations
 
+import logging
 from collections.abc import AsyncIterator
 
 import pytest
 import pytest_asyncio
 
 from usernet.errors import ConnectionRefused, ConnectionTimeout
-from usernet.net.ipv4 import parse_ipv4
+from usernet.net.ipv4 import PROTO_TCP, build_ipv4, parse_ipv4
 from usernet.net.stack import StackConfig
 from usernet.net.tcb import TcbConfig
 from usernet.net.tcp import Flag, parse_tcp
@@ -388,3 +389,28 @@ async def test_refused_connection_surfaces_as_connection_refused() -> None:
             await driver.connect(SERVER_IP, 80, timeout=5)
     finally:
         await driver.aclose()
+
+
+async def test_dropped_packets_are_logged(caplog: pytest.LogCaptureFixture) -> None:
+    """A silent drop is the hardest thing to find in a hang, so it is not silent."""
+
+    class MisaddressingPeer(TcpPeer):
+        def handle(self, packet: bytes) -> list[bytes]:
+            stray = build_ipv4(
+                source=self.ip, destination="10.0.0.99", protocol=PROTO_TCP, payload=b""
+            )
+            return [stray, *super().handle(packet)]
+
+    peer = MisaddressingPeer(ip=SERVER_IP, port=80, handler=http_handler(b"ok"))
+    _link, driver = make(peer)
+    try:
+        with caplog.at_level(logging.DEBUG, logger="usernet.net"):
+            stream = await driver.connect(SERVER_IP, 80)
+            await stream.write(b"GET / HTTP/1.1\r\nHost: internal\r\n\r\n")
+            await stream.read_all()
+    finally:
+        await driver.aclose()
+
+    drops = [r.getMessage() for r in caplog.records if r.name == "usernet.net"]
+    assert drops
+    assert drops[0] == f"dropped (not-for-us): {SERVER_IP} > 10.0.0.99"
