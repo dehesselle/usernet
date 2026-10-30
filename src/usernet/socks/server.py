@@ -80,6 +80,7 @@ class Socks5Server:
         password: str | None = None,
         allow_non_loopback: bool = False,
         connect_timeout: float = 30.0,
+        handshake_timeout: float = 10.0,
         route_policy: str = "auto",
         resolver: Resolver | None = None,
     ) -> None:
@@ -89,6 +90,7 @@ class Socks5Server:
         self._username = username
         self._password = password
         self._connect_timeout = connect_timeout
+        self._handshake_timeout = handshake_timeout
         self._route_policy = route_policy
         # The driver's resolver unless this proxy was given its own.
         self._resolver = resolver if resolver is not None else driver.resolver
@@ -177,8 +179,7 @@ class Socks5Server:
         if task is not None:
             self._handlers.add(task)
         try:
-            await self._negotiate(reader, writer)
-            request = await self._read_request(reader)
+            request = await self._handshake(reader, writer)
             stream = await self._open(request)
 
             # BND.ADDR is informational for CONNECT; reporting the tunnel
@@ -225,6 +226,25 @@ class Socks5Server:
             await writer.drain()
 
     # --- negotiation -------------------------------------------------------
+
+    async def _handshake(
+        self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+    ) -> Request:
+        """Negotiate and read the request, within the handshake timeout.
+
+        Bounded, because a client that connects and then says nothing would
+        otherwise hold its handler, and a socket, for as long as it liked.
+        Real clients finish in milliseconds. The connect that follows has a
+        timeout of its own, which is why this one stops here.
+        """
+        try:
+            async with asyncio.timeout(self._handshake_timeout):
+                await self._negotiate(reader, writer)
+                return await self._read_request(reader)
+        except TimeoutError:
+            raise ProtocolParseError(
+                f"no request within {self._handshake_timeout:g}s of connecting"
+            ) from None
 
     async def _negotiate(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         version, count = await reader.readexactly(2)

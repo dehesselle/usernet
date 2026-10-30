@@ -17,14 +17,20 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-from collections.abc import Awaitable, Callable, Iterator
+import secrets
+import socket
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
+from pathlib import Path
 
 import pytest
 
-from tests.conformance.conftest import HOST_IP, IMPAIRED, within
+from tests.conformance.conftest import HOST_IP, IMPAIRED, NETMASK, STACK_IP, within
 from tests.conformance.trace import PacketTrace
+from tests.conformance.tun import TunLink
 from usernet.errors import ConnectionRefused, NetworkError
 from usernet.net.ipv4 import PROTO_TCP, parse_ipv4
+from usernet.net.stack import StackConfig
+from usernet.net.tcb import TcbConfig
 from usernet.net.tcp import Flag, TcpSegment, parse_tcp
 from usernet.runtime.driver import Driver
 
@@ -53,9 +59,47 @@ def tcp_segments(trace: PacketTrace, *, outbound: bool | None = None) -> Iterato
     for was_outbound, packet in trace.packets:
         if outbound is not None and was_outbound != outbound:
             continue
+        # The kernel sends IPv6 on the device now and then -- router
+        # solicitations, MLD -- which is none of these tests' business.
+        if packet[0] >> 4 != 4:
+            continue
         header, body = parse_ipv4(packet)
         if header.protocol == PROTO_TCP:
             yield parse_tcp(body)
+
+
+def kernel_mss(trace: PacketTrace) -> int:
+    """The MSS the kernel offered in its first SYN-ACK.
+
+    Call it straight after the handshake: the trace keeps only its last few
+    hundred packets, and a bulk transfer pushes the SYN-ACK out of it.
+    """
+    for segment in tcp_segments(trace, outbound=False):
+        if segment.has(Flag.SYN) and segment.mss:
+            return segment.mss
+    raise AssertionError("the kernel never sent a SYN-ACK with an MSS")
+
+
+def kernel_setting(name: str) -> int:
+    return int(Path(f"/proc/sys/net/ipv4/{name}").read_text().strip())
+
+
+async def own_driver(link: TunLink, **tcb: int) -> Driver:
+    """A driver with its own TCB settings, otherwise as in production."""
+    driver = Driver(
+        link,
+        stack_config=StackConfig(
+            local_ip=STACK_IP,
+            netmask=NETMASK,
+            mtu=link.config.mtu,
+            tcb=TcbConfig(mss=link.config.mtu - 40, **tcb),  # type: ignore[arg-type]
+            # Random, as in production: a fixed ISN and first port would meet
+            # the kernel's TIME_WAIT from an earlier test.
+            rng=lambda: secrets.randbits(32),
+        ),
+    )
+    driver.start()
+    return driver
 
 
 # --- handshake and teardown --------------------------------------------------
@@ -74,12 +118,13 @@ async def test_the_kernel_completes_our_handshake(driver: Driver, serve: Serve) 
     stream.close()
 
 
-async def test_window_scaling_is_negotiated(
+async def test_window_scaling_follows_the_kernel(
     driver: Driver, serve: Serve, trace: PacketTrace
 ) -> None:
-    """Linux offers window scaling on every connection. If we failed to parse
-    or echo the option the transfer would still work, just capped at 64 KiB --
-    a performance bug that no correctness assertion would ever notice."""
+    """Linux offers window scaling on every connection unless told not to. If
+    we failed to parse or echo the option the transfer would still work, just
+    capped at 64 KiB -- a performance bug that no correctness assertion would
+    ever notice. With scaling off in the kernel, neither side may use it."""
 
     async def handler(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         writer.close()
@@ -94,6 +139,9 @@ async def test_window_scaling_is_negotiated(
     ]
     assert ours and ours[0].window_scale is not None, "our SYN offered no window scale"
     assert theirs, "the kernel never sent a SYN-ACK"
+    if not kernel_setting("tcp_window_scaling"):
+        assert theirs[0].window_scale is None, "the kernel scaled with scaling switched off"
+        return
     assert theirs[0].window_scale is not None, (
         "the kernel declined window scaling, which it does only when the "
         "option in our SYN was malformed"
@@ -247,11 +295,12 @@ async def test_a_bulk_send_does_not_storm(
 
     port = await within(5, "the listener", serve(handler))
     stream = await within(10, "the handshake", driver.connect(HOST_IP, port))
+    mss = kernel_mss(trace)  # now, before the transfer pushes the SYN-ACK out
     await within(120, "the transfer", stream.write(body))
     stream.close()
     await within(60, "the peer to finish reading", done.wait())
 
-    ideal = size / (tun_mtu - 40)
+    ideal = size / min(tun_mtu - 40, mss)
     assert trace.sent < ideal * 1.5, (
         f"sent {trace.sent} packets for {size} bytes; about {ideal:.0f} would do. "
         f"That ratio means retransmission on a lossless link."
@@ -326,3 +375,197 @@ async def test_a_reset_mid_connection_surfaces_as_an_error(driver: Driver, serve
 
     with pytest.raises(NetworkError):
         await within(15, "the RST to be reported", stream.read_all())
+
+
+async def test_no_segment_exceeds_the_kernels_mss(
+    driver: Driver, serve: Serve, trace: PacketTrace
+) -> None:
+    """The MSS clamp, judged by the MSS the kernel actually offered -- which is
+    smaller than our own whenever its route says so (ip route ... advmss)."""
+    done = asyncio.Event()
+
+    async def handler(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        await reader.read(-1)
+        done.set()
+        writer.close()
+
+    port = await within(5, "the listener", serve(handler))
+    stream = await within(10, "the handshake", driver.connect(HOST_IP, port))
+    mss = kernel_mss(trace)
+    await within(60, "the upload", stream.write(payload(64 * 1024)))
+    stream.close()
+    await within(30, "the kernel to read it all", done.wait())
+
+    largest = max(len(s.payload) for s in tcp_segments(trace, outbound=True))
+    assert largest <= mss, f"sent a {largest}-byte segment; the kernel offered an MSS of {mss}"
+
+
+# --- flow control against a real peer ----------------------------------------
+
+
+@pytest.fixture
+async def small_receiver() -> AsyncIterator[Serve]:
+    """A kernel listener with a tiny receive buffer that reads only when told.
+
+    SO_RCVBUF is set before listen() so accepted sockets inherit it -- set
+    later, it would leave autotuning on -- and asyncio's own buffering is
+    limited too, or it would empty the kernel's buffer by itself.
+    """
+    servers: list[asyncio.Server] = []
+
+    async def start(handler: Handler) -> int:
+        listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        listener.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 4096)
+        listener.bind((HOST_IP, 0))
+        listener.listen()
+        listener.setblocking(False)
+        server = await asyncio.start_server(handler, sock=listener, limit=1024)
+        servers.append(server)
+        return int(listener.getsockname()[1])
+
+    try:
+        yield start
+    finally:
+        for server in servers:
+            server.close()
+
+
+@pytest.mark.timeout(120)
+async def test_the_kernels_closed_window_is_probed_until_it_opens(
+    driver: Driver, small_receiver: Serve, trace: PacketTrace
+) -> None:
+    """The kernel stops reading, so its window shuts; we must probe until it
+    reopens rather than give up or overrun it. A mishandled probe shows up as
+    a stall here, or as a byte delivered twice."""
+    size = 128 * 1024
+    body = payload(size)
+    received: asyncio.Future[bytes] = asyncio.get_running_loop().create_future()
+
+    async def handler(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        await asyncio.sleep(3)  # long enough for several probes
+        data = await reader.read(-1)
+        if not received.done():
+            received.set_result(data)
+        writer.close()
+
+    port = await within(5, "the listener", small_receiver(handler))
+    stream = await within(10, "the handshake", driver.connect(HOST_IP, port))
+    await within(60, "the kernel to take everything", stream.write(body))
+    stream.close()
+
+    arrived = await within(30, "the kernel to report what it received", received)
+    assert len(arrived) == size, f"kernel received {len(arrived)} of {size} bytes"
+    assert digest(arrived) == digest(body), "the bytes arrived corrupted or reordered"
+    windows = [s.window for s in tcp_segments(trace, outbound=False) if not s.has(Flag.SYN)]
+    assert 0 in windows, "the kernel's window never shut, so nothing was proven"
+
+
+@pytest.mark.timeout(120)
+async def test_the_kernel_waits_on_our_closed_window_and_resumes(
+    link: TunLink, serve: Serve, trace: PacketTrace
+) -> None:
+    """The other side of flow control: we read slowly, our window shuts, and
+    the kernel's probes must get answers that let it resume exactly where it
+    stopped."""
+    driver = await own_driver(link, rx_buffer=16 * 1024, tx_buffer=16 * 1024)
+    try:
+        size = 512 * 1024
+        body = payload(size)
+
+        async def handler(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+            writer.write(body)
+            await writer.drain()
+            writer.close()
+
+        port = await within(5, "the listener", serve(handler))
+        stream = await within(10, "the handshake", driver.connect(HOST_IP, port))
+        # Stalls, not merely slow reads: with a long RTT the kernel cannot
+        # fill even a small window faster than a steady reader drains it.
+        received = bytearray()
+        await asyncio.sleep(1)
+        while chunk := await within(30, "the next chunk", stream.read(4096)):
+            received += chunk
+            if len(received) % (128 * 1024) < len(chunk):
+                await asyncio.sleep(1)
+    finally:
+        await driver.aclose()
+
+    assert len(received) == size, f"received {len(received)} of {size} bytes"
+    assert digest(bytes(received)) == digest(body), "the bytes arrived corrupted or reordered"
+    windows = [s.window for s in tcp_segments(trace, outbound=True) if not s.has(Flag.SYN)]
+    assert 0 in windows, "our window never shut, so nothing was proven"
+
+
+# --- endings and silences ----------------------------------------------------
+
+
+async def test_our_abort_reaches_the_kernel_as_a_reset(driver: Driver, serve: Serve) -> None:
+    """An abort the kernel never sees leaves its socket open until its own
+    timers give up: minutes, holding the far end's resources."""
+    reset = asyncio.Event()
+
+    async def handler(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        try:
+            await reader.read(-1)
+        except ConnectionResetError:
+            reset.set()
+        writer.close()
+
+    port = await within(5, "the listener", serve(handler))
+    stream = await within(10, "the handshake", driver.connect(HOST_IP, port))
+    await within(10, "the write", stream.write(b"partial request"))
+    stream.abort()
+    await within(10, "the kernel to see our RST", reset.wait())
+
+
+@pytest.mark.timeout(60)
+async def test_an_idle_connection_stays_usable(driver: Driver, serve: Serve) -> None:
+    """Silence is not failure. Several RTOs' worth of nothing in either
+    direction must not wake a timer that ends the connection."""
+
+    async def handler(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        line = await reader.readline()
+        writer.write(b"still here:" + line)
+        await writer.drain()
+        writer.close()
+
+    port = await within(5, "the listener", serve(handler))
+    stream = await within(10, "the handshake", driver.connect(HOST_IP, port))
+    await asyncio.sleep(5)
+    await within(10, "the request", stream.write(b"hello\n"))
+    assert await within(10, "the response", stream.read_all()) == b"still here:hello\n"
+
+
+@pytest.mark.timeout(60)
+async def test_a_half_closed_connection_outlives_its_retransmission_budget(
+    link: TunLink, serve: Serve
+) -> None:
+    """We send a request and our FIN; the kernel answers for longer than our
+    retransmission budget would last if anything were wrongly outstanding.
+
+    Nothing of ours is, once the FIN is acknowledged. A phantom FIN sent after
+    the real one once kept the retransmission timer running here, and failed
+    the connection mid-download. Three retransmissions make that take seconds
+    rather than minutes."""
+    driver = await own_driver(link, max_retransmits=3)
+    try:
+        chunk = payload(1000)
+
+        async def handler(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+            await reader.read(-1)  # the whole request, up to our FIN
+            for _ in range(60):
+                writer.write(chunk)
+                await writer.drain()
+                await asyncio.sleep(0.1)
+            writer.close()
+
+        port = await within(5, "the listener", serve(handler))
+        stream = await within(10, "the handshake", driver.connect(HOST_IP, port))
+        await within(10, "the request", stream.write(b"GET /slowly"))
+        stream.close()
+        body = await within(30, "the slow download", stream.read_all())
+    finally:
+        await driver.aclose()
+
+    assert body == chunk * 60
+    assert stream.error is None

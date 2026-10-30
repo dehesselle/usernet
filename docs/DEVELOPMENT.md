@@ -36,7 +36,12 @@ uvx reuse lint
 - mypy runs in strict mode for `usernet.net.*`, `usernet.link` and
   `usernet.routing`, the code with the most correctness risk.
 - pytest has a global 30 s timeout. A broken TCP stack hangs rather than
-  failing, and would otherwise wedge CI.
+  failing, and would otherwise wedge CI. The few tests that legitimately run
+  longer, or shrink a failure for longer, raise it for themselves.
+- CI also measures coverage in every test and conformance job, combines it in
+  the Coverage job, and fails that job below `fail_under` in
+  `pyproject.toml`. That number is a floor, not a target: raise it when
+  coverage rises, and never lower it to let a change through.
 - The project is REUSE-compliant. New files start with the SPDX header that
   `reuse annotate` writes; files that can't carry a comment get covered in
   `REUSE.toml`.
@@ -47,15 +52,37 @@ Each layer proves something the one before it cannot.
 
 | Suite | Location | What it proves |
 | --- | --- | --- |
-| Unit | [tests/unit/](../tests/unit/) | Codecs, checksums, sequence arithmetic, the TCB state machine, timers, SOCKS framing, redaction, pcap output, and the seams. Hypothesis generates inputs for the checksum and IPv4/ICMP codecs. `test_sans_io_guard.py` and `test_httpcore_seam.py` pin the import contract and the httpcore API that `http.py` relies on. |
-| Integration | [tests/integration/](../tests/integration/) | The real stack and driver over `VirtualLink` and `TcpPeer` (the "vnet" suite): HTTP, TLS, SOCKS relays and resolvers, with seeded loss, duplication and reordering. These prove self-consistency only, because a misreading of RFC 9293 shared by both sides still passes. |
-| Conformance | [tests/conformance/](../tests/conformance/) | Our TCP against a real Linux kernel over a tun device, on a clean link and on one with 2 % loss and 20 ms delay in both directions. This is the only suite that proves conformance. It is Linux-only and marked `linux_only`. |
+| Unit | [tests/unit/](../tests/unit/) | Codecs, checksums, sequence arithmetic, the TCB state machine, timers, ICMP errors, SOCKS framing, redaction, pcap output, and the seams. `test_sans_io_guard.py` and `test_httpcore_seam.py` pin the import contract and the httpcore API that `http.py` relies on. |
+| Property and fuzz | [tests/unit/](../tests/unit/) | What no hand-written case reaches. `test_tcb_stateful.py` lets Hypothesis drive one TCB against a peer and a network that reorders, duplicates and drops, plus hostile segments, and checks invariants after every step: bytes delivered exactly, memory bounded, nothing outstanding without a timer. `test_stack_fuzz.py` feeds the stack packets that lie in any field but carry valid checksums. `test_transport_codecs.py` and the codec tests hold the parsers to raising only `ProtocolParseError`. |
+| Integration | [tests/integration/](../tests/integration/) | The real stack and driver over `VirtualLink` and `TcpPeer` (the "vnet" suite): HTTP, TLS, the SOCKS server and client, and resolvers, with seeded loss, duplication and reordering. `test_churn.py` ends hundreds of connections every way there is and checks that nothing is left behind; `test_soak.py` runs seeded random transfers. These prove self-consistency only, because a misreading of RFC 9293 shared by both sides still passes. |
+| Conformance | [tests/conformance/](../tests/conformance/) | Our TCP against a real Linux kernel over a tun device: on a clean link, under six impairment profiles in both directions, with the kernel offering no window scaling and a small MSS, and through a narrow hop that makes the kernel send ICMP "fragmentation needed". This is the only suite that proves conformance. It is Linux-only and marked `linux_only`. |
 
 The conformance suite has its own guide: setup, running it without root,
 impairment, and reading the packet traces it prints on failure. See
 [tests/conformance/README.md](../tests/conformance/README.md). It runs locally
-under WSL2. In CI it has a job of its own that runs both the clean and the
-impaired pass.
+under WSL2. In CI it is a matrix with one job per link, so a failure names the
+impairment that caused it.
+
+### Searching deeper
+
+Hypothesis reads its profile from `HYPOTHESIS_PROFILE`, defined in
+[tests/conftest.py](../tests/conftest.py). `ci`, the default, is what every
+push runs. `nightly` searches far longer and needs the timeout lifted. The
+driver soak takes its seed count from `USERNET_SOAK_SEEDS` and its first seed
+from `USERNET_SOAK_SEED_BASE`, and a failing seed is replayed alone with
+`USERNET_SOAK_SEED`.
+
+```sh
+HYPOTHESIS_PROFILE=nightly uv run pytest tests/unit -o timeout=3600
+USERNET_SOAK_SEEDS=500 uv run pytest tests/integration/test_soak.py
+```
+
+The [nightly workflow](../.github/workflows/nightly.yml) runs both, plus ten
+minutes of mixed traffic against the kernel under three impairment profiles.
+Every run uses new seeds, derived from the run number, so the nights add up to
+more coverage instead of repeating one night's.
+It never blocks a pull request; check its runs on the Actions page. It can
+also be started by hand from there.
 
 Code shared by test suites goes in `src/usernet/testing/` when other projects
 need it too. Otherwise it stays in `tests/`.

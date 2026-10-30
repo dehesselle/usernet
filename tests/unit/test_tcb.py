@@ -200,6 +200,22 @@ def test_rst_during_connect_is_connection_refused(h: Harness) -> None:
     assert isinstance(h.tcb.error, ConnectionRefused)
 
 
+@pytest.mark.parametrize(
+    ("flags", "ack"),
+    [(Flag.RST, 0), (Flag.RST | Flag.ACK, ISN), (Flag.RST | Flag.ACK, ISN + 2)],
+    ids=["without-ack", "ack-below-syn", "ack-beyond-syn"],
+)
+def test_a_reset_not_acknowledging_our_syn_is_ignored(h: Harness, flags: int, ack: int) -> None:
+    """RFC 9293 3.10.7.3. Only the ACK ties a RST to our SYN; without it,
+    anyone who guesses the four-tuple could fail the connect."""
+    h.tcb.connect(h.now)
+    h.sent()
+    h.peer(seq=0, ack=ack, flags=flags)
+
+    assert h.tcb.state is State.SYN_SENT
+    assert h.tcb.error is None
+
+
 def test_syn_is_retransmitted_with_backoff_then_gives_up(h: Harness) -> None:
     h = Harness(rto_initial_ms=1000, syn_retransmits=3, connect_timeout_ms=999_999)
     h.tcb.connect(h.now)
@@ -460,6 +476,36 @@ def test_active_close_walks_fin_wait_to_time_wait(h: Harness) -> None:
     assert h.tcb.state is State.TIME_WAIT
 
 
+def test_an_acknowledged_fin_is_not_sent_again(h: Harness) -> None:
+    h.establish()
+    h.tcb.close(h.now)
+    h.sent()
+
+    h.peer(seq=seq_add(PEER_ISN, 1), ack=seq_add(ISN, 2), flags=Flag.ACK)
+    assert h.sent() == []
+    assert h.tcb.next_deadline() is None, "a timer is running with nothing outstanding"
+
+
+def test_a_half_closed_connection_outlives_the_retransmission_budget(h: Harness) -> None:
+    """We have closed and the peer is still sending -- a request followed by a
+    long download. Nothing of ours is outstanding, so no timer may run down,
+    however long the download takes."""
+    h.establish()
+    h.tcb.close(h.now)
+    h.sent()
+    seq = seq_add(PEER_ISN, 1)
+    h.peer(seq=seq, ack=seq_add(ISN, 2), flags=Flag.ACK)
+
+    for _ in range(600):
+        h.advance(1000)
+        h.peer(seq=seq, ack=seq_add(ISN, 2), flags=Flag.ACK | Flag.PSH, payload=b"x")
+        seq = seq_add(seq, 1)
+        h.tcb.recv(1, h.now)
+
+    assert h.tcb.state is State.FIN_WAIT_2
+    assert h.tcb.error is None
+
+
 def test_time_wait_expires_into_closed(h: Harness) -> None:
     h = Harness(time_wait_ms=30_000)
     h.establish()
@@ -609,6 +655,25 @@ def test_abort_sends_a_reset(h: Harness) -> None:
 
     assert h.one().flags & Flag.RST
     assert h.tcb.state is State.CLOSED
+
+
+def test_an_abort_in_time_wait_is_reported_without_a_reset(h: Harness) -> None:
+    """The connection already ended cleanly, so there is nothing to reset --
+    but whoever holds the socket is still owed word that it is gone."""
+    h.establish()
+    h.tcb.close(h.now)
+    h.sent()
+    h.peer(seq=seq_add(PEER_ISN, 1), ack=seq_add(ISN, 2), flags=Flag.FIN | Flag.ACK)
+    h.sent()
+    h.events()
+    assert h.tcb.state is State.TIME_WAIT
+
+    h.tcb.abort(h.now)
+
+    assert h.sent() == []
+    assert h.tcb.state is State.CLOSED
+    assert h.event_names() == ["closed"]
+    assert h.tcb.next_deadline() is None
 
 
 # --- correctness of what goes on the wire ----------------------------------
@@ -877,6 +942,25 @@ def test_overlapping_segments_cannot_exceed_the_receive_buffer() -> None:
     assert h.tcb.ooo_dropped > 0, "the bound never engaged, so nothing was proven"
 
 
+def test_in_order_data_cannot_carry_overlapping_held_segments_past_the_buffer() -> None:
+    """Two held segments overlapping by two bytes, then in-order data filling
+    the window up to them. Each step fits on its own; the overlap, counted
+    twice, is what would carry the total over. Found by the stateful suite."""
+    h = Harness(rx_buffer=576)
+    h.establish()
+    base = seq_add(PEER_ISN, 1)
+    for offset, length in ((574, 2), (482, 94), (0, 481)):
+        h.peer(
+            seq=seq_add(base, offset),
+            ack=seq_add(ISN, 1),
+            flags=Flag.ACK,
+            payload=b"o" * length,
+        )
+
+    assert len(h.tcb.recv_buffer) == 481
+    assert len(h.tcb.recv_buffer) + h.tcb._ooo_bytes <= h.tcb.config.rx_buffer
+
+
 def test_upgrading_held_segments_cannot_exceed_the_receive_buffer() -> None:
     """A longer resend replaces a shorter copy in place, which grows the queue
     without appending to it -- so it has to be charged for like any other
@@ -1113,6 +1197,11 @@ def test_an_ack_for_data_sent_before_a_timeout_is_still_accepted() -> None:
     assert h.tcb.snd_una == seq_add(ISN, 2145)
     assert h.tcb.state is State.ESTABLISHED
     assert h.tcb.unsent == 0
+    # And snd_nxt moves with it, rather than walking up to it by resending
+    # what was just acknowledged.
+    assert h.tcb.snd_nxt == h.tcb.snd_una
+    assert h.sent() == []
+    assert h.tcb.next_deadline() is None
 
 
 def test_an_unacknowledged_fin_is_retransmitted() -> None:
@@ -1206,6 +1295,57 @@ def test_the_probe_repeats_the_same_byte_with_backoff() -> None:
     assert h.sent() == []
     h.advance(1)
     assert h.one().payload == b"b"
+
+
+def test_a_probe_carrying_the_last_byte_stays_covered_by_a_timer() -> None:
+    """The peer answers the probe with its window still shut. Nothing is
+    unsent any more -- the byte is in flight -- but it has not been accepted,
+    so something must keep offering it."""
+    h = Harness(rto_min_ms=250)
+    h.establish(window=0)
+    h.tcb.send(b"k", h.now)
+    h.advance(250)
+    assert h.one().payload == b"k"
+
+    h.peer(seq=seq_add(PEER_ISN, 1), ack=seq_add(ISN, 1), flags=Flag.ACK, window=0)
+    assert h.tcb.next_deadline() is not None, "nothing will ever resend the byte"
+
+    resent = []
+    for _ in range(3):
+        deadline = h.tcb.next_deadline()
+        assert deadline is not None
+        h.advance(deadline - h.now)
+        resent += [s.payload for s in h.sent()]
+    assert b"k" in resent
+
+
+def test_data_queued_before_close_is_probed_for_in_closing() -> None:
+    """Both sides have closed; our last byte and FIN were sent but the byte
+    was lost, and the peer's window has shut. The application can no longer
+    write, yet that byte still has to go out, so persist must cover it.
+    Found by the stateful suite at nightly depth."""
+    h = Harness(rto_min_ms=250)
+    h.establish(window=0)
+    h.tcb.send(b"ab", h.now)
+    h.tcb.close(h.now)
+    h.peer(seq=seq_add(PEER_ISN, 1), ack=seq_add(ISN, 1), flags=Flag.ACK, window=2)
+    assert any(s.has(Flag.FIN) for s in h.sent())  # b"ab" and the FIN went out
+
+    h.peer(seq=seq_add(PEER_ISN, 1), ack=seq_add(ISN, 1), flags=Flag.FIN | Flag.ACK, window=0)
+    assert h.tcb.state is State.CLOSING
+    h.advance(250)  # the RTO rewinds, but the window is shut
+    h.sent()
+    h.peer(seq=seq_add(PEER_ISN, 2), ack=seq_add(ISN, 2), flags=Flag.ACK, window=0)
+
+    assert h.tcb.unsent == 1
+    assert h.tcb.next_deadline() is not None, "nothing will ever send the last byte"
+    resent = []
+    for _ in range(3):
+        deadline = h.tcb.next_deadline()
+        assert deadline is not None
+        h.advance(deadline - h.now)
+        resent += [s.payload for s in h.sent()]
+    assert b"b" in resent
 
 
 def test_a_reopened_window_cancels_persist_and_resends() -> None:

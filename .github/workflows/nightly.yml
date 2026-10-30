@@ -1,0 +1,90 @@
+# SPDX-FileCopyrightText: 2026 René de Hesselle <dehesselle@web.de>
+#
+# SPDX-License-Identifier: 0BSD
+
+# The searches too long for every push: Hypothesis at depth, the driver soak
+# across hundreds of seeds, and minutes of mixed traffic against the kernel.
+# A failure here never blocks a pull request; it shows on the Actions page and
+# GitHub mails it to whoever last changed the schedule. GitHub disables the
+# schedule after 60 days without activity in the repository, which is intended:
+# the nightly runs cover the weeks after a change, then stop until the next one.
+
+name: Nightly
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  #-----------------------------------------------------------------------------
+
+  Search:
+    runs-on: ubuntu-latest
+    steps:
+      # full history for hatch-vcs
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+
+      # The profile is in tests/conftest.py. Its searches run for minutes, so
+      # the per-test timeout is lifted to an hour; a hang still ends. There is
+      # no example database between runs, so each run draws fresh examples.
+      - name: Search deeper with Hypothesis
+        run: uv run --locked pytest tests/unit -q -o timeout=3600
+        env:
+          HYPOTHESIS_PROFILE: nightly
+
+      # New seeds every run: the 500 after the previous run's. Any failure
+      # names its seed, which USERNET_SOAK_SEED replays alone.
+      - name: Soak the driver
+        run: |
+          export USERNET_SOAK_SEED_BASE=$(( GITHUB_RUN_NUMBER * 500 ))
+          uv run --locked pytest tests/integration/test_soak.py -q
+        env:
+          USERNET_SOAK_SEEDS: "500"
+
+  #-----------------------------------------------------------------------------
+
+  Soak:
+    strategy:
+      fail-fast: false
+      matrix:
+        link: [loss, reorder, bottleneck]
+    runs-on: ubuntu-latest
+    env:
+      LINK: ${{ matrix.link }}
+    steps:
+      # full history for hatch-vcs
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+
+      - name: Install project
+        run: uv sync --locked
+
+      - name: Create tun device
+        run: sudo sh tests/conformance/setup.sh
+
+      - name: Impair the link
+        run: sudo sh tests/conformance/impair.sh "$LINK"
+
+      # A new seed every run, printed with the result and named in a failure.
+      - name: Run ten minutes of mixed traffic
+        run: uv run --locked pytest tests/conformance/test_kernel_soak.py -v -s
+        env:
+          USERNET_TUN_NETEM: "1"
+          USERNET_CONFORMANCE_SOAK: "600"
+          USERNET_CONFORMANCE_SOAK_SEED: ${{ github.run_number }}

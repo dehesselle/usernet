@@ -31,6 +31,7 @@ These are per connection unless marked otherwise. The values come from
 | Driver idle wake | 500 ms | The longest the driver sleeps. It doubles as a watchdog and lets Ctrl-C get through on Windows. |
 | Transport write buffer | 64 KiB high, 16 KiB low | `StreamWriter.drain()` waits above the high mark. |
 | SOCKS connect timeout | 30 s | `Socks5Server(connect_timeout=...)`. |
+| SOCKS handshake timeout | 10 s | `Socks5Server(handshake_timeout=...)`. A client that hasn't sent its request by then is disconnected. |
 | SOCKS shutdown grace | 2 s | Open relays get this long to finish before they are cancelled. |
 
 Nagle is off. Received checksums are verified at every layer and failures are
@@ -49,11 +50,18 @@ received fragments are dropped.
   back. `driver.address_changes` counts these events.
 - **The driver task crashes.** The exception is logged at error level, and
   every open stream fails with `NetworkError("driver failed: ...")`.
-- **A connect fails.** RST gives `ConnectionRefused` immediately. An ICMP hard
+- **A connect fails.** A RST that acknowledges our SYN gives
+  `ConnectionRefused` immediately. One that doesn't is ignored, as RFC 9293
+  requires: anyone who guesses the four-tuple could send it. An ICMP hard
   error while connecting gives `ConnectionRefused` (port unreachable) or
   `HostUnreachable` immediately, instead of waiting for the timeout. On a
   timeout, the half-open socket is aborted before `ConnectionTimeout` is
   raised.
+- **A half-closed connection** (we have sent our FIN, the peer is still
+  sending) has nothing of ours outstanding once the FIN is acknowledged, so no
+  timer runs against it. It lasts as long as the peer keeps sending.
+- **An abort after a clean close**, in TIME_WAIT, sends nothing, ends
+  TIME_WAIT early and reports the socket closed.
 - **ICMP "fragmentation needed".** The connection's MSS is lowered (never below
   536) and retransmission carries the data. The connection is not aborted.
 - **Segments for unknown sockets** are dropped silently, without an RST.
@@ -74,7 +82,8 @@ What is logged:
 - **warning**: the tunnel address changed; an IP fragment arrived and was
   dropped (we set DF and size from the MTU, so a fragment means the path does
   not match the tunnel's MTU); a SOCKS request was rejected, its connect
-  failed, the client sent a malformed request, or a relay ended early.
+  failed, the client sent a malformed request or none within the handshake
+  timeout, or a relay ended early.
 - **info**: each SOCKS connection opened.
 - **debug**: every other packet the stack discarded, as
   `dropped (<reason>): <summary>`. Reasons include `bad-ip-checksum`, `bad-tcp-checksum`,

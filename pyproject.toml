@@ -117,3 +117,14 @@ markers = [
 [tool.coverage.run]
 source = ["usernet"]
 branch = true
+# CI measures on three operating systems and combines the results, so paths
+# are stored relative and mapped back to one tree.
+relative_files = true
+
+[tool.coverage.paths]
+source = ["src/usernet", "*/src/usernet", '*\src\usernet']
+
+[tool.coverage.report]
+# A floor, not a target: it exists so coverage cannot fall without anyone
+# noticing. Raise it when coverage rises; never lower it to make a change pass.
+fail_under = 88

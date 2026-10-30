@@ -189,11 +189,13 @@ await server.aclose()
 
 `Socks5Server(driver, *, host="127.0.0.1", port=1080, username=None,
 password=None, allow_non_loopback=False, connect_timeout=30.0,
-route_policy="auto", resolver=None)`:
+handshake_timeout=10.0, route_policy="auto", resolver=None)`:
 
 - Only `CONNECT` is supported. `BIND` and `UDP ASSOCIATE` are refused.
 - A non-loopback `host` raises `NetworkError` unless `allow_non_loopback=True`.
   If you do expose the listener, also set `username` and `password` (RFC 1929).
+- A client that hasn't finished the SOCKS handshake and sent its request
+  within `handshake_timeout` seconds is disconnected and counted as rejected.
 - `port=0` picks a free port. After `start()`, read it back from `server.port`
   or `server.address`.
 - With `route_policy="auto"`, destinations outside the link's split routes are

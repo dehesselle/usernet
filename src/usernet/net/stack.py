@@ -430,8 +430,10 @@ class PyStack:
                 if message.code == 3
                 else HostUnreachable(f"{tcb.remote_ip} unreachable (icmp code {message.code})")
             )
-            tcb.abort(now, str(error))
-            tcb.pending_events.append(("error", error))
+            # Reported through abort() rather than after it: abort() alone
+            # reports a reset, and the driver keeps a stream's first error,
+            # so a refused connect surfaced as ConnectionReset.
+            tcb.abort(now, error=error)
             self._harvest(sid, tcb)
 
     # --- UDP ---------------------------------------------------------------

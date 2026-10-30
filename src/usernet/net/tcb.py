@@ -343,9 +343,11 @@ class Tcb:
         halves the window the moment a hole opens -- exactly when it needs to
         stay open, since the peer can only keep sending, and only continued
         sending produces the duplicate ACKs that trigger fast retransmit. The
-        memory bound still holds: the peer may have at most ``window`` bytes in
-        that range, so ``len(recv_buffer) + _ooo_bytes`` cannot exceed
-        ``rx_buffer`` even if every one of them arrives out of order.
+        memory bound still holds for distinct bytes: the peer may have at most
+        ``window`` of them in that range. Overlapping held segments count some
+        bytes twice, which is what :meth:`_has_room_for` and :meth:`_shed_ooo`
+        are for, so ``len(recv_buffer) + _ooo_bytes`` never exceeds
+        ``rx_buffer``.
         """
         return max(0, self.config.rx_buffer - len(self.recv_buffer))
 
@@ -366,13 +368,26 @@ class Tcb:
         self.close_requested = True
         self._pump(now)
 
-    def abort(self, now: int, reason: str = "aborted") -> None:
-        """Send RST and drop the connection immediately."""
-        if self.state in (State.CLOSED, State.TIME_WAIT):
+    def abort(
+        self, now: int, reason: str = "aborted", *, error: NetworkError | None = None
+    ) -> None:
+        """Send RST and drop the connection immediately.
+
+        ``error`` is what the socket reports, when the cause is known to be
+        more specific than a reset -- an ICMP error failing a connect.
+        """
+        if self.state is State.CLOSED:
+            return
+        if self.state is State.TIME_WAIT:
+            # Nothing left to reset -- the connection already ended cleanly --
+            # so end TIME_WAIT early. But say so: closing silently released the
+            # socket while its owner waited for an event that never came.
             self.state = State.CLOSED
+            self.time_wait_deadline = None
+            self.pending_events.append(("closed", "aborted in time-wait"))
             return
         self._emit(Flag.RST | Flag.ACK, now)
-        self._fail(ConnectionReset(reason))
+        self._fail(error if error is not None else ConnectionReset(reason))
 
     # --- inbound -----------------------------------------------------------
 
@@ -459,7 +474,11 @@ class Tcb:
 
     def _on_reset(self, segment: TcpSegment) -> None:
         if self.state is State.SYN_SENT:
-            self._fail(ConnectionRefused(f"{self.remote_ip}:{self.remote_port} refused"))
+            # RFC 9293 3.10.7.3: only a RST acknowledging our SYN refuses the
+            # connection. Without the ACK it proves nothing about the SYN --
+            # anyone who guesses the four-tuple could send it -- and is dropped.
+            if segment.has(Flag.ACK) and segment.ack == seq_add(self.isn, 1):
+                self._fail(ConnectionRefused(f"{self.remote_ip}:{self.remote_port} refused"))
             return
         # Only accept an in-window RST, per RFC 5961, so a blind off-path
         # guess cannot tear down the connection.
@@ -546,6 +565,13 @@ class Tcb:
         if newly <= 0:
             return
         self.snd_una = ack
+        # After a timeout has rewound snd_nxt, the ACK for the original
+        # transmissions can land beyond it. Left behind, snd_nxt made the
+        # flight size negative and _pump resend from before the buffer's
+        # start -- stale bytes under old sequence numbers -- and with the
+        # window shut it could never catch up to resend the FIN.
+        if seq_lt(self.snd_nxt, ack):
+            self.snd_nxt = ack
 
         consumed = seq_diff(ack, self.send_base)
         if consumed > 0:
@@ -604,6 +630,7 @@ class Tcb:
             if seq == self.rcv_nxt:
                 self._accept(payload)
                 self._drain_ooo()
+                self._shed_ooo()
                 accepted = True
             else:
                 self._hold(seq, payload)
@@ -711,6 +738,21 @@ class Tcb:
                 if skip < len(payload):
                     self._accept(payload[skip:])
                 break
+
+    def _shed_ooo(self) -> None:
+        """Drop held segments, furthest first, until the memory bound holds.
+
+        Held segments can overlap, and _ooo_bytes counts an overlap twice, so
+        in-order data arriving inside the window can still carry the total
+        past rx_buffer -- by up to the buffer again. The window argument in
+        recv_window covers distinct bytes only. Held data is a cache of what
+        the peer will resend anyway, so shedding it costs a retransmission and
+        nothing else, and it takes overlapping resends to need it at all.
+        """
+        while self._ooo and not self._has_room_for(0):
+            _, payload = self._ooo.pop()
+            self._ooo_bytes -= len(payload)
+            self.ooo_dropped += 1
 
     def _consume_peer_fin(self, now: int) -> bool:
         """Act on the peer's FIN once every byte before it has been delivered."""
@@ -913,7 +955,13 @@ class Tcb:
             self.retransmit_deadline = now + self.rto_ms
 
     def _arm_persist(self, now: int) -> None:
-        wants_to_send = self.unsent > 0 and self.state.can_send
+        # Unsent data, whatever the state. This was limited to the states in
+        # which the application may still write, but data queued before
+        # close() must go out after it too: once a timeout had rewound the
+        # send queue in CLOSING behind a shut window, nothing was left to probe
+        # it. _pump, the only caller, already skips the states with nothing to
+        # send.
+        wants_to_send = self.unsent > 0
         if self.snd_wnd == 0 and wants_to_send:
             if self.persist_deadline is None:
                 self.persist_ms = max(self.rto_ms, self.config.rto_min_ms)
@@ -922,6 +970,12 @@ class Tcb:
             self.persist_deadline = None
             self.persist_ms = 0
             self.persist_count = 0
+            # If the probe carried the last unsent byte, that byte is now in
+            # flight past a window that may still be shut, and persist was the
+            # only timer covering it. Without the RTO taking over, a lost
+            # window update left the connection waiting forever.
+            if self.flight_size > 0:
+                self._arm_rto(now)
 
     def _update_rtt(self, sample_ms: int) -> None:
         """RFC 6298 with Jacobson/Karels smoothing."""
@@ -974,8 +1028,19 @@ class Tcb:
         # The FIN follows the last data byte in sequence. Rewinding snd_nxt on
         # a timeout naturally brings us back here, so this doubles as the FIN's
         # retransmission without a special case.
+        #
+        # Only while it is unacknowledged, though: the ACK that covers the FIN
+        # moves send_base past it, data_end with it, and without the second
+        # condition a phantom FIN went out one past the real one. Nothing can
+        # acknowledge that, so it held the retransmission timer running in
+        # FIN_WAIT_2 and failed a half-closed connection after eight backoffs
+        # -- while the peer was still sending.
         data_end = seq_add(self.send_base, len(self.send_buffer))
-        if self.close_requested and self.snd_nxt == data_end:
+        if (
+            self.close_requested
+            and self.snd_nxt == data_end
+            and (self.fin_sent_seq is None or self.snd_nxt == self.fin_sent_seq)
+        ):
             if self.fin_sent_seq is None:
                 self.fin_sent_seq = self.snd_nxt
                 if self.state is State.ESTABLISHED:

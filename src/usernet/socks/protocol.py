@@ -259,7 +259,12 @@ REPLY_PREFIX = 5
 def reply_length(prefix: bytes) -> int:
     if len(prefix) < REPLY_PREFIX:
         raise ProtocolParseError(f"need {REPLY_PREFIX} bytes to size a reply")
-    return request_length(prefix)
+    try:
+        return request_length(prefix)
+    except SocksRejection as exc:
+        # A rejection is the server's answer to a client; from a proxy, the
+        # same bytes are simply a reply we cannot parse.
+        raise ProtocolParseError(f"proxy reply with {exc}") from None
 
 
 def parse_reply(data: bytes) -> tuple[Reply, str, int]:

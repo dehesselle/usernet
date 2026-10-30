@@ -33,16 +33,30 @@ unshare -rn sh -c 'sh tests/conformance/setup.sh && exec uv run pytest tests/con
 A user namespace makes you root inside it, with a private network stack. Nothing leaks to
 the host, and the suite cannot interfere with your real interfaces.
 
-### The run that actually stresses retransmission
+### The runs that actually stress recovery
 
 A tun device is lossless and has no latency, so a clean run exercises the happy path only.
-The interesting one is impaired:
+The interesting ones are impaired:
 
 ```sh
-sudo sh tests/conformance/impair.sh
+sudo sh tests/conformance/impair.sh [profile]
 USERNET_TUN_NETEM=1 uv run pytest tests/conformance -v
 sudo sh tests/conformance/impair.sh --off
 ```
+
+Each profile degrades both directions and exercises a different part of recovery. CI runs
+all of them, one job each:
+
+| Profile | Netem | What it exercises |
+| --- | --- | --- |
+| `loss` (default) | 20 ms, 2 % loss | Fast retransmit, NewReno recovery, the RTO. |
+| `reorder` | 20 ms, 25 % sent early | Reassembly, and reordering costing a duplicate ACK rather than a resend. |
+| `duplicate` | 20 ms, 5 % duplicated | Duplicates trimmed and never delivered twice. |
+| `corrupt` | 20 ms, 1 % with a flipped bit | The receive checksum, both ours and the kernel's. |
+| `bottleneck` | 20 ms at 10 Mbit/s, 64-packet queue | Loss from queue overflow, driven by our own sending rate. |
+| `long-fat` | 100 ms, 0.5 % loss | A large window in flight: scaling, cwnd growth, recovery with a long RTT. |
+
+`impair.sh <delay> [loss]` still sets an arbitrary delay and loss, as `bench/run.py` does.
 
 **Do not just do `tc qdisc add dev usernet0 root netem ...`.** A root qdisc is *egress only*, so
 it degrades kernel→us and leaves our own packets untouched — which means our retransmission,
@@ -51,9 +65,51 @@ tests half of what it appears to. `impair.sh` redirects ingress through an `ifb`
 both directions are degraded; that is what surfaced the two window bugs.
 
 `USERNET_TUN_NETEM=1` disables the packet-count assertions, which are meaningless once loss is
-deliberate. Everything else still has to hold — byte-exactness above all. **Both runs are
-worth doing**; the clean one catches protocol errors, the impaired one catches recovery
+deliberate. Everything else still has to hold — byte-exactness above all. **Both kinds of run
+are worth doing**; the clean one catches protocol errors, the impaired ones catch recovery
 errors, and they fail in completely different ways.
+
+### What the kernel offers
+
+The kernel normally offers window scaling and an MSS that fills the link. Two settings make
+it offer less, and the suite follows whatever it offers:
+
+```sh
+sudo sysctl -w net.ipv4.tcp_window_scaling=0
+sudo ip route change 10.99.0.0/24 dev usernet0 proto kernel scope link src 10.99.0.1 advmss 536
+uv run pytest tests/conformance -v
+```
+
+Both are global, so undo them afterwards: set `tcp_window_scaling` back to 1, and rerun
+`setup.sh`, which recreates the route. CI runs this as the `kernel-variants` job.
+
+Timestamps and SACK need no variant. Linux offers them in a SYN-ACK only when the SYN did,
+and ours offers neither.
+
+### A narrow hop
+
+```sh
+sudo sh tests/conformance/pmtu.sh
+uv run pytest tests/conformance/test_kernel_pmtu.py -v
+sudo sh tests/conformance/pmtu.sh --off
+```
+
+`pmtu.sh` puts a far network namespace (10.98.0.2) behind a 1000-byte hop, with IP forwarding
+on. Our full-sized segments cannot cross the hop, so the kernel answers them with ICMP
+"fragmentation needed", and the upload only completes if we act on it. Without the
+namespace the test skips and says why. CI runs it in the clean job.
+
+### A long run
+
+`test_kernel_soak.py` keeps eight connections busy with random uploads and downloads for as
+many seconds as `USERNET_CONFORMANCE_SOAK` says, checking every byte, then checks the stack is
+empty again. It skips without that variable. The nightly workflow runs it for ten minutes
+under the `loss`, `reorder` and `bottleneck` profiles.
+
+### What this suite does not cover
+
+The peer is always Linux. Other kernels' TCP, and middleboxes that rewrite options or clamp
+the MSS, are not tested here. They are what a real gateway's peers will be.
 
 ## What the addresses mean
 
