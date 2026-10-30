@@ -55,7 +55,9 @@ await driver.aclose()
 `Driver(link, *, mss=None, buffer=None, stack_config=None, resolver=None)`:
 
 - `mss`: the maximum segment size to offer. The default is the link MTU minus
-  40. The stack also clamps it to the peer's MSS during the handshake.
+  40. The stack also clamps it to the peer's MSS during the handshake, and
+  never sends larger segments, even when this is below the RFC 1122 default
+  of 536.
 - `buffer`: the per-connection send and receive buffer, in bytes. The default
   is 1 MiB. A single connection cannot go faster than buffer ÷ RTT, so a
   distant gateway needs a larger one. The out-of-order reassembly cap scales

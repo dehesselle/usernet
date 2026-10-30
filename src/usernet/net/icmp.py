@@ -124,3 +124,21 @@ def quoted_headers(message: IcmpMessage) -> tuple[str, str, int, int] | None:
         return None
     source_port, destination_port = struct.unpack_from("!HH", payload)
     return header.source, header.destination, source_port, destination_port
+
+
+def quoted_tcp_sequence(message: IcmpMessage) -> int | None:
+    """The sequence number of the TCP segment an ICMP error quotes.
+
+    The eight quoted bytes end with it, so every error that names a TCP
+    socket also says which segment provoked it.
+    """
+    from usernet.net.ipv4 import parse_ipv4
+
+    try:
+        _header, payload = parse_ipv4(message.payload)
+    except ProtocolParseError:
+        return None
+    if len(payload) < 8:
+        return None
+    (sequence,) = struct.unpack_from("!I", payload, 4)
+    return int(sequence)

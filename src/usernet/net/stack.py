@@ -45,7 +45,7 @@ from usernet.net.ipv4 import (
     verify_header_checksum,
 )
 from usernet.net.tcb import State, Tcb, TcbConfig
-from usernet.net.tcp import build_tcp_ipv4, parse_tcp, verify_tcp_checksum
+from usernet.net.tcp import DEFAULT_MSS, build_tcp_ipv4, parse_tcp, verify_tcp_checksum
 from usernet.net.udp import build_udp, parse_udp, verify_udp_checksum
 
 DEFAULT_MTU = 1406
@@ -414,12 +414,23 @@ class PyStack:
         if tcb is None:
             return
 
+        # RFC 5927 4.1: the quoted segment must be one still in flight. The
+        # four-tuple alone is guessable, and a forged "fragmentation needed"
+        # would otherwise shrink any connection's segments at will.
+        seq = icmp.quoted_tcp_sequence(message)
+        if seq is None or not tcb.in_flight(seq):
+            self._drop("icmp-stale", f"quotes seq {seq}, not in flight")
+            return
+
         mtu = message.next_hop_mtu
         if mtu is not None:
             # Path MTU shrank. Clamp and let retransmission carry the data;
             # aborting here would turn a recoverable mismatch into a dead
-            # connection, which is the silent-hang failure mode.
-            tcb.peer_mss = max(536, min(tcb.peer_mss, mtu - IP_HEADER_LEN - TCP_HEADER_LEN))
+            # connection, which is the silent-hang failure mode. Never below
+            # the RFC 1122 floor, which a forgery could otherwise undercut,
+            # and never above what the connection already uses.
+            path_mss = max(DEFAULT_MSS, mtu - IP_HEADER_LEN - TCP_HEADER_LEN)
+            tcb.peer_mss = min(tcb.peer_mss, path_mss)
             self._drop("pmtu-clamp", f"mss now {tcb.peer_mss}")
             return
 

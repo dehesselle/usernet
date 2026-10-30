@@ -48,9 +48,11 @@ def scenario(seed: int) -> dict[str, object]:
     rng = random.Random(seed)
     s: dict[str, object] = {
         # Not above 5%. The fixture peer discards out-of-order data, so every
-        # loss costs the whole window behind it; at 10% that compounded with
-        # Karn's rule -- no RTT sample from anything retransmitted -- until the
-        # RTO sat at a minute and a 120 KB request took longer than the test.
+        # loss makes us send the whole window behind it again, and Karn's rule
+        # allows no RTT sample from anything sent twice. Near the end of a
+        # transfer, with no new data left to time, nothing stops the RTO
+        # backing off, and at 10% a 120 KB request outlasted the test. A
+        # kernel keeps out-of-order data; the conformance suite covers it.
         "loss": rng.choice([0.0, 0.0, 0.01, 0.02, 0.05]),
         "duplicate": rng.choice([0.0, 0.0, 0.02, 0.2]),
         "reorder": rng.choice([0.0, 0.0, 0.05, 0.3]),

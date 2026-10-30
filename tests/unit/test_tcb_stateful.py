@@ -53,7 +53,6 @@ from usernet.net.tcp import (
     seq_diff,
     seq_geq,
     seq_gt,
-    seq_lt,
 )
 
 LOCAL_IP = "172.29.29.5"
@@ -363,8 +362,9 @@ class TcbAgainstAnything(RuleBasedStateMachine):
     # favours a distance of zero, which is the one sure hit.
     @rule(hit=st.sampled_from([False] * 31 + [True]), with_ack=st.booleans(), data=st.data())
     def blind_reset(self, hit: bool, with_ack: bool, data: st.DataObject) -> None:
-        """RFC 5961: only an in-window RST may end a synchronized connection,
-        and in SYN_SENT only one acknowledging our SYN (RFC 9293 3.10.7.3)."""
+        """RFC 5961: only a RST at exactly RCV.NXT may end a synchronized
+        connection, elsewhere in the window it earns a challenge ACK, and in
+        SYN_SENT only one acknowledging our SYN counts (RFC 9293 3.10.7.3)."""
         tcb = self.tcb
         window = max(1, tcb.recv_window)
         if hit:
@@ -376,14 +376,17 @@ class TcbAgainstAnything(RuleBasedStateMachine):
             )
         seq = seq_add(tcb.rcv_nxt, distance)
         before = tcb.state
+        challenged = False
         if before is State.SYN_SENT:
             ack = seq_add(self.isn, 1 if hit else 1 + distance)
             expected = with_ack and hit
             error_type: type[NetworkError] = ConnectionRefused
         else:
             ack = seq_add(self.isn, 1 + self.peer_ack)
-            expected = seq_geq(seq, tcb.rcv_nxt) and seq_lt(seq, seq_add(tcb.rcv_nxt, window))
+            expected = hit and distance == 0
+            challenged = hit and distance != 0
             error_type = ConnectionReset
+        sent_before = len(tcb.pending_segments)
         tcb.on_segment(
             TcpSegment(
                 source_port=REMOTE_PORT,
@@ -397,12 +400,17 @@ class TcbAgainstAnything(RuleBasedStateMachine):
             self.now,
         )
         if before.is_closed:
-            expected = False
+            expected = challenged = False
         if expected:
             assert tcb.state is State.CLOSED, f"an acceptable RST left us in {tcb.state.name}"
             assert isinstance(tcb.error, error_type)
         else:
             assert tcb.state is before, f"a blind RST moved {before.name} to {tcb.state.name}"
+        replies = tcb.pending_segments[sent_before:]
+        if challenged:
+            assert [(s.flags, s.ack) for s in replies] == [(Flag.ACK, tcb.rcv_nxt)]
+        elif not expected:
+            assert replies == [], "a RST outside the window was answered"
         self.settle()
 
     @precondition(lambda self: self.tcb.state in SYNCHRONIZED)

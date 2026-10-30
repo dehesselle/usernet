@@ -62,8 +62,15 @@ received fragments are dropped.
   timer runs against it. It lasts as long as the peer keeps sending.
 - **An abort after a clean close**, in TIME_WAIT, sends nothing, ends
   TIME_WAIT early and reports the socket closed.
-- **ICMP "fragmentation needed".** The connection's MSS is lowered (never below
-  536) and retransmission carries the data. The connection is not aborted.
+- **A RST on a connection** ends it only if its sequence number is exactly
+  the next one we expect. Elsewhere in the receive window it gets a challenge
+  ACK, which a genuine peer answers with a RST that does match (RFC 5961). Out
+  of the window it is ignored.
+- **ICMP errors** count only if the segment they quote is still in flight
+  (RFC 5927). Others are dropped as `icmp-stale`.
+- **ICMP "fragmentation needed".** The connection's MSS is lowered and
+  retransmission carries the data. It is never lowered below 536, nor raised
+  above its current value. The connection is not aborted.
 - **Segments for unknown sockets** are dropped silently, without an RST.
 - **A name with no resolver** fails with `ResolveError`. It is never passed to
   the host's DNS.
@@ -86,10 +93,10 @@ What is logged:
   timeout, or a relay ended early.
 - **info**: each SOCKS connection opened.
 - **debug**: every other packet the stack discarded, as
-  `dropped (<reason>): <summary>`. Reasons include `bad-ip-checksum`, `bad-tcp-checksum`,
-  `not-for-us`, `no-socket`, `malformed-tcp` and
-  `icmp-ignored`; `pmtu-clamp` reports an MSS lowered by ICMP. Also SOCKS
-  hostname resolution.
+  `dropped (<reason>): <summary>`. Reasons include `bad-ip-checksum`,
+  `bad-tcp-checksum`, `not-for-us`, `no-socket`, `malformed-tcp`,
+  `icmp-ignored` and `icmp-stale`; `pmtu-clamp` reports an MSS lowered by
+  ICMP. Also SOCKS hostname resolution.
 - **exception**: a protocol's flow-control callback raised inside the asyncio
   transport.
 

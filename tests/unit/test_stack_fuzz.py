@@ -40,6 +40,7 @@ from usernet.net.tcp import SEQ_MASK, seq_add, verify_tcp_checksum
 from usernet.net.udp import verify_udp_checksum
 
 UDP_PORT = 5353
+IN_FLIGHT = 3000  # bytes the connection has sent and not had acknowledged
 STRANGER_IP = "10.0.0.1"
 
 TCP_HEADER = struct.Struct("!HHIIBBHHH")
@@ -153,12 +154,15 @@ def icmp_message(draw: st.DrawFn, connection: Connection) -> bytes:
     code = draw(mostly(draw(st.sampled_from([3, icmp.FRAGMENTATION_NEEDED])), *range(0x100)))
     rest = draw(st.integers(0, 0xFFFFFFFF))
     if message_type in (icmp.DEST_UNREACHABLE, icmp.TIME_EXCEEDED) and draw(st.booleans()):
-        # Quoting our own connection, so the error reaches its socket.
+        # Quoting our own connection, and mostly a segment still in flight,
+        # so the error reaches its socket and gets past RFC 5927's check.
+        in_flight = seq_add(connection.isn, 1)
+        seq = draw(mostly(in_flight, connection.isn, seq_add(in_flight, IN_FLIGHT), 0))
         quoted = build_ipv4(
             source=LOCAL_IP,
             destination=REMOTE_IP,
             protocol=PROTO_TCP,
-            payload=struct.pack("!HH", connection.local_port, REMOTE_PORT) + b"\x00" * 4,
+            payload=struct.pack("!HHI", connection.local_port, REMOTE_PORT, seq),
         )
         body = quoted[: draw(mostly(len(quoted), *range(len(quoted))))]
     else:
@@ -256,6 +260,10 @@ def test_hostile_packets_are_survived(data: st.DataObject) -> None:
     connection = Connection()
     connection.establish()
     stack = connection.stack
+    # Unacknowledged data, so that ACKs and ICMP errors have something to
+    # concern.
+    stack.tcp_send(connection.sid, memoryview(b"f" * IN_FLIGHT), 1)
+    stack.take_output()
     udp = stack.udp_open(UDP_PORT)
 
     now = 1

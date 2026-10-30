@@ -221,7 +221,12 @@ class Tcb:
     retransmit_count: int = 0
     retransmit_deadline: int | None = None
 
-    # One segment per window is timed, per RFC 6298 3.1.
+    # One segment per window is timed, per RFC 6298 3.1. Timing every segment,
+    # as Linux does, was tried and measured worse: against a kernel at 10%
+    # loss a 1 MiB upload took 30 s instead of 21, with more timeouts. Many
+    # samples a round trip with the standard gains shrink rttvar until the RTO
+    # hugs the RTT -- the effect RFC 7323 appendix G warns of. Linux offsets
+    # that by holding the deviation at its largest over each round trip.
     rtt_seq_end: int | None = None
     rtt_sent_at: int = 0
     _rtt_blocked_through: int | None = None
@@ -361,6 +366,11 @@ class Tcb:
         """Bytes sent but not yet acknowledged."""
         return max(0, seq_diff(self.snd_nxt, self.snd_una))
 
+    def in_flight(self, seq: int) -> bool:
+        """Whether ``seq`` is a sequence number we sent that is still
+        unacknowledged -- the test RFC 5927 4.1 puts to an ICMP error."""
+        return seq_leq(self.snd_una, seq) and seq_lt(seq, self.snd_max)
+
     def close(self, now: int) -> None:
         """Begin a graceful close; the FIN follows any queued data."""
         if self.close_requested or self.state.is_closed:
@@ -401,7 +411,7 @@ class Tcb:
         self.persist_count = 0
 
         if segment.has(Flag.RST):
-            self._on_reset(segment)
+            self._on_reset(segment, now)
             return
 
         if self.state is State.SYN_SENT:
@@ -449,10 +459,11 @@ class Tcb:
         self.snd_wl2 = segment.ack
         # Clamp to the peer's advertised MSS: sending larger is the classic
         # silent-hang bug, where the handshake works and bulk data never does.
-        if segment.mss:
-            self.peer_mss = max(DEFAULT_MSS, min(segment.mss, self.config.mss))
-        else:
-            self.peer_mss = min(DEFAULT_MSS, self.config.mss)
+        # The 536 floor keeps a peer from forcing tiny segments on us, but ours
+        # is the ceiling over everything: it comes from the tunnel's MTU, and
+        # raising it to the floor sent packets a small-MTU tunnel cannot carry.
+        offered = max(DEFAULT_MSS, segment.mss) if segment.mss else DEFAULT_MSS
+        self.peer_mss = min(offered, self.config.mss)
 
         # Scaling takes effect only if the peer echoed the option.
         if segment.window_scale is not None and self.config.window_scaling:
@@ -472,7 +483,7 @@ class Tcb:
         # Simultaneous open (SYN without ACK) is out of scope; ignoring it
         # leaves the connect timeout to report the failure.
 
-    def _on_reset(self, segment: TcpSegment) -> None:
+    def _on_reset(self, segment: TcpSegment, now: int) -> None:
         if self.state is State.SYN_SENT:
             # RFC 9293 3.10.7.3: only a RST acknowledging our SYN refuses the
             # connection. Without the ACK it proves nothing about the SYN --
@@ -480,12 +491,17 @@ class Tcb:
             if segment.has(Flag.ACK) and segment.ack == seq_add(self.isn, 1):
                 self._fail(ConnectionRefused(f"{self.remote_ip}:{self.remote_port} refused"))
             return
-        # Only accept an in-window RST, per RFC 5961, so a blind off-path
-        # guess cannot tear down the connection.
-        if seq_geq(segment.seq, self.rcv_nxt) and seq_lt(
+        # RFC 5961 3.2: a RST resets only at exactly RCV.NXT. Anywhere else in
+        # the window, a blind attacker has a window's worth of chances, so it
+        # gets a challenge ACK instead. A genuine peer whose RST overtook data
+        # we have not received answers that ACK with a RST at RCV.NXT, which
+        # costs one round trip; an attacker never sees it.
+        if segment.seq == self.rcv_nxt:
+            self._fail(ConnectionReset("connection reset by peer"))
+        elif seq_gt(segment.seq, self.rcv_nxt) and seq_lt(
             segment.seq, seq_add(self.rcv_nxt, max(1, self.recv_window))
         ):
-            self._fail(ConnectionReset("connection reset by peer"))
+            self._emit(Flag.ACK, now)
 
     # --- acknowledgement and congestion control ----------------------------
 
@@ -887,6 +903,18 @@ class Tcb:
             # only the leftmost segment and then waiting for the next timeout
             # costs an RTO *per segment* -- a transfer that technically
             # completes and practically hangs.
+            #
+            # snd_nxt, not snd_max, on purpose. A second timeout finds snd_nxt
+            # rewound by the first, so the resend of a segment past it is
+            # timed although it went out once before, which Karn's rule
+            # forbids. The sample runs from the resend, though, and is wrong
+            # only if the original's ACK arrives more than two RTOs late. In
+            # exchange, a long recovery gets a sample at all: with snd_max, a
+            # receiver that discards out-of-order data, so that every byte
+            # after a loss goes out again, left nothing to time until the
+            # recovery ended, and the RTO kept doubling meanwhile. Measured
+            # with snd_max, 3 of 500 driver soak seeds at 5% loss timed out
+            # that way, and a kernel at 10% loss gained nothing measurable.
             self._rtt_blocked_through = self.snd_nxt
             self.rtt_seq_end = None
             self.snd_nxt = self.snd_una

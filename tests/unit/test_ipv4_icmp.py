@@ -27,6 +27,7 @@ from usernet.net.icmp import (
     build_echo_request,
     parse_icmp,
     quoted_headers,
+    quoted_tcp_sequence,
 )
 from usernet.net.icmp import verify_checksum as verify_icmp
 from usernet.net.ipv4 import (
@@ -202,6 +203,30 @@ def test_quoted_headers_returns_none_for_echo() -> None:
 def test_quoted_headers_survives_a_truncated_quote() -> None:
     error = struct.pack("!BBHHH", DEST_UNREACHABLE, 3, 0, 0, 0) + b"\x45\x00"
     assert quoted_headers(parse_icmp(error)) is None
+
+
+def test_quoted_tcp_sequence_ends_the_eight_quoted_bytes() -> None:
+    original = build_ipv4(
+        source="10.20.30.40",
+        destination="10.221.188.5",
+        protocol=PROTO_TCP,
+        payload=struct.pack("!HHI", 51000, 443, 0xDEADBEEF),
+    )
+    error = struct.pack("!BBHHH", DEST_UNREACHABLE, 3, 0, 0, 0) + original
+
+    assert quoted_tcp_sequence(parse_icmp(error)) == 0xDEADBEEF
+
+
+def test_quoted_tcp_sequence_needs_all_eight_bytes() -> None:
+    original = build_ipv4(
+        source="10.20.30.40",
+        destination="10.221.188.5",
+        protocol=PROTO_TCP,
+        payload=struct.pack("!HH", 51000, 443) + b"\x00\x00",
+    )
+    error = struct.pack("!BBHHH", DEST_UNREACHABLE, 3, 0, 0, 0) + original
+
+    assert quoted_tcp_sequence(parse_icmp(error)) is None
 
 
 @pytest.mark.parametrize("data", [b"", b"\x08", b"\x08\x00\x00\x00\x00\x00\x00"])

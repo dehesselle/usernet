@@ -182,6 +182,16 @@ def test_missing_mss_option_falls_back_to_the_rfc_floor(h: Harness) -> None:
     assert h.tcb.peer_mss == DEFAULT_MSS
 
 
+@pytest.mark.parametrize("peer_mss", [1460, 300, None])
+def test_our_mss_below_the_rfc_floor_is_never_raised_to_it(peer_mss: int | None) -> None:
+    """Ours comes from the tunnel's MTU. The floor guards against a peer
+    asking for tiny segments; applied to ours, it sent packets the tunnel
+    could not carry."""
+    h = Harness(mss=400)
+    h.establish(peer_mss=peer_mss)
+    assert h.tcb.peer_mss == 400
+
+
 def test_syn_ack_for_a_different_handshake_is_ignored(h: Harness) -> None:
     h.tcb.connect(h.now)
     h.sent()
@@ -456,6 +466,72 @@ def test_rto_is_clamped_to_the_minimum(h: Harness) -> None:
     assert h.tcb.rto_ms == 250
 
 
+def test_a_long_recovery_still_yields_a_sample() -> None:
+    """After a second timeout, the first resend past the rewound snd_nxt is
+    timed. Without that, a receiver that discards out-of-order data left a
+    whole recovery without a sample, and the RTO doubled throughout."""
+    h = Harness(rto_initial_ms=1000, rto_min_ms=1)
+    h.establish(peer_mss=536, rtt_ms=100)
+    h.tcb.send(b"z" * 2144, h.now)
+    h.sent()
+    h.advance(h.tcb.rto_ms)
+    h.advance(h.tcb.rto_ms)
+    h.sent()
+    backed_off = h.tcb.rto_ms
+
+    h.peer(seq=seq_add(PEER_ISN, 1), ack=seq_add(ISN, 537), flags=Flag.ACK)
+    assert h.sent()[0].seq == seq_add(ISN, 537), "the second segment goes out again"
+    h.now += 50
+    h.peer(seq=seq_add(PEER_ISN, 1), ack=seq_add(ISN, 1073), flags=Flag.ACK)
+
+    assert h.tcb.srtt_ms == pytest.approx(0.875 * 100 + 0.125 * 50)
+    assert h.tcb.rto_ms < backed_off
+
+
+def test_an_ack_that_covers_a_resent_hole_is_no_sample() -> None:
+    """The segment timed in this window was resent by fast retransmit, so its
+    ACK may be for either copy; timing resumes with the next new data."""
+    h = Harness(rto_min_ms=1, rto_initial_ms=100_000)
+    h.establish(peer_mss=536, rtt_ms=100)
+    h.tcb.send(b"z" * 2144, h.now)
+    h.sent()
+    for _ in range(3):
+        h.peer(seq=seq_add(PEER_ISN, 1), ack=seq_add(ISN, 1), flags=Flag.ACK)
+    assert h.one().seq == seq_add(ISN, 1)
+
+    h.now += 1000
+    h.peer(seq=seq_add(PEER_ISN, 1), ack=seq_add(ISN, 2145), flags=Flag.ACK)
+    assert h.tcb.srtt_ms == 100
+
+    # Past the hole, samples resume with the next data.
+    h.tcb.send(b"z" * 536, h.now)
+    h.sent()
+    h.now += 200
+    h.peer(seq=seq_add(PEER_ISN, 1), ack=seq_add(ISN, 2681), flags=Flag.ACK)
+    assert h.tcb.srtt_ms == pytest.approx(112.5)
+
+
+def test_a_backed_off_timer_collapses_with_the_first_clean_sample() -> None:
+    """RFC 6298 5.5 holds the backed-off RTO only until data sent once is
+    acknowledged; that sample brings it back to what the path needs."""
+    h = Harness(rto_initial_ms=1000, rto_min_ms=1)
+    h.establish(peer_mss=536, rtt_ms=100)
+    h.tcb.send(b"z" * 536, h.now)
+    h.sent()
+    h.advance(h.tcb.rto_ms)
+    h.advance(h.tcb.rto_ms)
+    h.sent()
+    backed_off = h.tcb.rto_ms
+    h.peer(seq=seq_add(PEER_ISN, 1), ack=seq_add(ISN, 537), flags=Flag.ACK)
+    assert h.tcb.rto_ms == backed_off
+
+    h.tcb.send(b"z" * 536, h.now)
+    h.sent()
+    h.now += 100
+    h.peer(seq=seq_add(PEER_ISN, 1), ack=seq_add(ISN, 1073), flags=Flag.ACK)
+    assert h.tcb.rto_ms < backed_off // 2
+
+
 # --- closing ---------------------------------------------------------------
 
 
@@ -583,9 +659,36 @@ def test_send_after_close_is_refused(h: Harness) -> None:
 # --- resets ----------------------------------------------------------------
 
 
-def test_in_window_reset_tears_down_the_connection(h: Harness) -> None:
+def test_a_reset_at_rcv_nxt_tears_down_the_connection(h: Harness) -> None:
     h.establish()
     h.peer(seq=seq_add(PEER_ISN, 1), ack=seq_add(ISN, 1), flags=Flag.RST)
+
+    assert h.tcb.state is State.CLOSED
+    assert isinstance(h.tcb.error, ConnectionReset)
+
+
+def test_a_reset_elsewhere_in_the_window_is_challenged(h: Harness) -> None:
+    """RFC 5961 3.2: anywhere in the window gives a blind attacker a window's
+    worth of chances; only RCV.NXT exactly is a reset."""
+    h.establish()
+    h.peer(seq=seq_add(PEER_ISN, 100), ack=seq_add(ISN, 1), flags=Flag.RST)
+
+    challenge = h.one()
+    assert challenge.flags == Flag.ACK
+    assert challenge.seq == seq_add(ISN, 1)
+    assert challenge.ack == seq_add(PEER_ISN, 1)
+    assert h.tcb.state is State.ESTABLISHED
+    assert h.tcb.error is None
+
+
+def test_a_peer_answering_the_challenge_resets_the_connection(h: Harness) -> None:
+    """A genuine peer whose RST overtook data we never received: it answers
+    the challenge ACK with a RST at the sequence number that ACK names."""
+    h.establish()
+    h.peer(seq=seq_add(PEER_ISN, 100), ack=seq_add(ISN, 1), flags=Flag.RST)
+    challenge = h.one()
+
+    h.peer(seq=challenge.ack, ack=0, flags=Flag.RST)
 
     assert h.tcb.state is State.CLOSED
     assert isinstance(h.tcb.error, ConnectionReset)
