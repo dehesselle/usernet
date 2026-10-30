@@ -45,7 +45,14 @@ from usernet.net.ipv4 import (
     verify_header_checksum,
 )
 from usernet.net.tcb import State, Tcb, TcbConfig
-from usernet.net.tcp import DEFAULT_MSS, build_tcp_ipv4, parse_tcp, verify_tcp_checksum
+from usernet.net.tcp import (
+    DEFAULT_MSS,
+    Flag,
+    TcpSegment,
+    build_tcp_ipv4,
+    parse_tcp,
+    verify_tcp_checksum,
+)
 from usernet.net.udp import build_udp, parse_udp, verify_udp_checksum
 
 DEFAULT_MTU = 1406
@@ -102,6 +109,9 @@ class PyStack:
         self._udp: dict[SocketId, _UdpSocket] = {}
         self._by_tuple: dict[tuple[int, str, int], SocketId] = {}
         self._udp_by_port: dict[int, SocketId] = {}
+        # Four-tuples we aborted with a RST, and until when to answer them.
+        # See _answer_aborted.
+        self._aborted: dict[tuple[int, str, int], int] = {}
 
         # Timers: a heap of (deadline, sid), so a driver pass costs what is
         # due rather than what is open. Entries are never removed in place;
@@ -173,7 +183,7 @@ class PyStack:
             tcb = self._tcbs.get(sid)
             if tcb is not None:
                 tcb.on_tick(now)
-                self._harvest(sid, tcb)
+                self._harvest(sid, tcb, now)
 
     def poll_at(self) -> int | None:
         timers = self._timers
@@ -220,14 +230,14 @@ class PyStack:
         register interest in the socket before anything reaches the wire."""
         tcb = self._tcbs[sid]
         tcb.connect(now)
-        self._harvest(sid, tcb)
+        self._harvest(sid, tcb, now)
 
     def tcp_send(self, sid: SocketId, data: memoryview, now: int = 0) -> int:
         tcb = self._tcbs.get(sid)
         if tcb is None:
             return 0
         accepted = tcb.send(data, now)
-        self._harvest(sid, tcb)
+        self._harvest(sid, tcb, now)
         return accepted
 
     def tcp_recv(self, sid: SocketId, max_bytes: int, now: int = 0) -> bytes:
@@ -237,7 +247,7 @@ class PyStack:
         data = tcb.recv(max_bytes, now)
         # Reading is what reopens the receive window, and a reopened window is
         # announced with an ACK -- so this call can put a segment on the wire.
-        self._harvest(sid, tcb)
+        self._harvest(sid, tcb, now)
         return data
 
     def tcp_tx_space(self, sid: SocketId) -> int:
@@ -256,13 +266,13 @@ class PyStack:
         tcb = self._tcbs.get(sid)
         if tcb is not None:
             tcb.close(now)
-            self._harvest(sid, tcb)
+            self._harvest(sid, tcb, now)
 
     def tcp_abort(self, sid: SocketId, now: int = 0) -> None:
         tcb = self._tcbs.get(sid)
         if tcb is not None:
             tcb.abort(now)
-            self._harvest(sid, tcb)
+            self._harvest(sid, tcb, now)
 
     def tcp_close(self, sid: SocketId, now: int = 0) -> None:
         self.tcp_shutdown_write(sid, now)
@@ -285,6 +295,8 @@ class PyStack:
         key = (segment.destination_port, source, segment.source_port)
         sid = self._by_tuple.get(key)
         if sid is None:
+            if self._answer_aborted(key, segment, now):
+                return
             # Nothing is listening. A real stack would RST; staying silent is
             # safer for a client-only stack and reveals nothing to a scanner.
             self._drop("no-socket", f"{source}:{segment.source_port} -> {key[0]}")
@@ -294,9 +306,49 @@ class PyStack:
         if tcb is None:
             return
         tcb.on_segment(segment, now)
-        self._harvest(sid, tcb)
+        self._harvest(sid, tcb, now)
 
-    def _harvest(self, sid: SocketId, tcb: Tcb) -> None:
+    def _answer_aborted(self, key: tuple[int, str, int], segment: TcpSegment, now: int) -> bool:
+        """Reset the peer of a connection we aborted, if this is its segment.
+
+        Our RST carries SND.NXT, and a peer that never received the data
+        before it -- lost, or still in flight -- does not accept it: RFC 5961
+        has it answer with a challenge ACK and keep the connection until the
+        RST comes back at the sequence number that ACK names. With the socket
+        gone that ACK went unanswered, as did anything the peer sent after a
+        RST that was lost outright, and the peer held the connection until
+        its own timers gave up. So the four-tuple is remembered for as long
+        as TIME_WAIT would last, and its segments get the reply RFC 9293
+        3.10.7.1 gives a closed connection: <SEQ=SEG.ACK><CTL=RST>. Silence
+        stays the rule for four-tuples we never aborted; the peer of one we
+        did learns nothing it did not know.
+        """
+        until = self._aborted.get(key)
+        if until is None:
+            return False
+        if now >= until:
+            del self._aborted[key]
+            return False
+        if segment.has(Flag.ACK) and not segment.has(Flag.RST):
+            local_port, remote_ip, remote_port = key
+            self._out.append(
+                build_tcp_ipv4(
+                    source_ip=self.config.local_ip,
+                    destination_ip=remote_ip,
+                    source_port=local_port,
+                    destination_port=remote_port,
+                    seq=segment.ack,
+                    ack=0,
+                    flags=Flag.RST,
+                    window=0,
+                    payload=b"",
+                    identification=self._next_ip_id(),
+                )
+            )
+        self._drop("aborted", f"{key[1]}:{key[2]} -> {key[0]}")
+        return True
+
+    def _harvest(self, sid: SocketId, tcb: Tcb, now: int) -> None:
         """Collect what a TCB call produced: segments, events, next deadline.
 
         Every call into a TCB ends here -- the backend's "every mutating call
@@ -304,7 +356,9 @@ class PyStack:
         a call. That is what lets the timer heap trust a deadline it was
         handed here until the next harvest says otherwise.
         """
+        reset_sent = False
         for segment in tcb.pending_segments:
+            reset_sent |= bool(segment.flags & Flag.RST)
             self._out.append(
                 build_tcp_ipv4(
                     source_ip=tcb.local_ip,
@@ -329,6 +383,8 @@ class PyStack:
 
         if tcb.state is State.CLOSED:
             self._release(sid, tcb)
+            if reset_sent:
+                self._remember_aborted(tcb, now)
             return
 
         deadline = tcb.next_deadline()
@@ -363,14 +419,32 @@ class PyStack:
         self._deadlines.pop(sid, None)
         self._by_tuple.pop((tcb.local_port, tcb.remote_ip, tcb.remote_port), None)
 
+    def _remember_aborted(self, tcb: Tcb, now: int) -> None:
+        aborted = self._aborted
+        # Bounded like the socket table it shadows. Expired entries go first,
+        # then the oldest: forgetting one early only means silence again.
+        if len(aborted) >= self.config.max_sockets:
+            for key in [k for k, until in aborted.items() if now >= until]:
+                del aborted[key]
+            while len(aborted) >= self.config.max_sockets:
+                del aborted[next(iter(aborted))]
+        key = (tcb.local_port, tcb.remote_ip, tcb.remote_port)
+        aborted[key] = now + self.config.tcb.time_wait_ms
+
     def _allocate_port(self, remote_ip: str, remote_port: int) -> int:
-        """Round-robin ephemeral port, skipping four-tuples still in use."""
+        """Round-robin ephemeral port, skipping four-tuples still in use.
+
+        Including those of connections we aborted lately: if our RST was
+        lost, the peer still has that connection, and a new SYN on its
+        four-tuple would draw the old connection's ACK instead of a SYN-ACK.
+        """
         for _ in range(EPHEMERAL_HIGH - EPHEMERAL_LOW + 1):
             port = self._next_port
             self._next_port += 1
             if self._next_port > EPHEMERAL_HIGH:
                 self._next_port = EPHEMERAL_LOW
-            if (port, remote_ip, remote_port) not in self._by_tuple:
+            key = (port, remote_ip, remote_port)
+            if key not in self._by_tuple and key not in self._aborted:
                 return port
         raise NetworkError("no ephemeral port available")
 
@@ -445,7 +519,7 @@ class PyStack:
             # reports a reset, and the driver keeps a stream's first error,
             # so a refused connect surfaced as ConnectionReset.
             tcb.abort(now, error=error)
-            self._harvest(sid, tcb)
+            self._harvest(sid, tcb, now)
 
     # --- UDP ---------------------------------------------------------------
 

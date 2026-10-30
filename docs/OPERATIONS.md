@@ -71,6 +71,12 @@ received fragments are dropped.
 - **ICMP "fragmentation needed".** The connection's MSS is lowered and
   retransmission carries the data. It is never lowered below 536, nor raised
   above its current value. The connection is not aborted.
+- **An abort** sends a RST. For as long as TIME_WAIT would last, the
+  connection's segments are still answered with a RST at the sequence
+  number they acknowledge. A peer that missed data sent before our RST
+  answers the RST with a challenge ACK (RFC 5961), and a lost RST leaves
+  the peer sending; either way the peer lets go. A new connection does not
+  reuse the four-tuple meanwhile.
 - **Segments for unknown sockets** are dropped silently, without an RST.
 - **A name with no resolver** fails with `ResolveError`. It is never passed to
   the host's DNS.
@@ -96,7 +102,8 @@ What is logged:
   `dropped (<reason>): <summary>`. Reasons include `bad-ip-checksum`,
   `bad-tcp-checksum`, `not-for-us`, `no-socket`, `malformed-tcp`,
   `icmp-ignored` and `icmp-stale`; `pmtu-clamp` reports an MSS lowered by
-  ICMP. Also SOCKS hostname resolution.
+  ICMP, and `aborted` a segment for a connection we aborted. Also SOCKS
+  hostname resolution.
 - **exception**: a protocol's flow-control callback raised inside the asyncio
   transport.
 

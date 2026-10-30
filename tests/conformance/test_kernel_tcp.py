@@ -501,13 +501,26 @@ async def test_the_kernel_waits_on_our_closed_window_and_resumes(
 
 async def test_our_abort_reaches_the_kernel_as_a_reset(driver: Driver, serve: Serve) -> None:
     """An abort the kernel never sees leaves its socket open until its own
-    timers give up: minutes, holding the far end's resources."""
+    timers give up: minutes, holding the far end's resources.
+
+    On a lossy link one RST is not enough. If the data before it was lost,
+    the kernel answers it with a challenge ACK (RFC 5961); if the RST itself
+    was lost, nothing is ever retransmitted. Either way the kernel must still
+    let go once it sends anything, because we answer each segment of an
+    aborted connection with a RST that matches. The handler pokes after a
+    second without one, which on a clean link the first RST beats."""
     reset = asyncio.Event()
 
     async def handler(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         try:
-            await reader.read(-1)
-        except ConnectionResetError:
+            while True:
+                try:
+                    if not await asyncio.wait_for(reader.read(65536), 1):
+                        break  # a FIN, which is not what an abort sends
+                except TimeoutError:
+                    writer.write(b"still there?")
+                    await writer.drain()
+        except (ConnectionResetError, BrokenPipeError):
             reset.set()
         writer.close()
 
@@ -515,7 +528,10 @@ async def test_our_abort_reaches_the_kernel_as_a_reset(driver: Driver, serve: Se
     stream = await within(10, "the handshake", driver.connect(HOST_IP, port))
     await within(10, "the write", stream.write(b"partial request"))
     stream.abort()
-    await within(10, "the kernel to see our RST", reset.wait())
+    if IMPAIRED:
+        await within(10, "the kernel to let go of the connection", reset.wait())
+    else:
+        await within(0.9, "the kernel to see our RST", reset.wait())
 
 
 @pytest.mark.timeout(60)
