@@ -1,7 +1,7 @@
 # Development
 
 This document covers setting up a checkout, running the checks CI runs, how
-the test suite is organised, and where benchmarking is described.
+the test suite is organised, releasing, and where benchmarking is described.
 
 ## Setup
 
@@ -15,17 +15,21 @@ needs the tags, which is why CI checks out with `fetch-depth: 0`.
 
 ## Checks
 
-CI runs the first four on Windows and Ubuntu, with Python 3.12 and 3.13, and
-the REUSE check once on Ubuntu. Run all five before committing.
+CI runs ruff and the REUSE check once on Ubuntu, and mypy and pytest on
+Ubuntu, Windows and macOS with Python 3.12, plus Ubuntu with 3.14. Run all
+five before committing.
 
 ```sh
-uv run ruff check .
-uv run ruff format --check .
+uvx --from 'ruff~=0.16.0' ruff check .
+uvx --from 'ruff~=0.16.0' ruff format --check .
 uv run mypy src
 uv run pytest -q -m "not linux_only"
 uvx reuse lint
 ```
 
+- Ruff isn't a project dependency. `required-version` in `pyproject.toml`
+  and the pin in `.github/workflows/build.yml` are bumped together, once a
+  new minor release's findings have been reviewed.
 - Ruff's banned-API rule (TID251) keeps `usernet.net` sans-IO. The other
   directories opt out of it in `pyproject.toml`. Don't add `src/usernet/net`
   to that list.
@@ -55,6 +59,15 @@ impaired pass.
 
 Code shared by test suites goes in `src/usernet/testing/` when other projects
 need it too. Otherwise it stays in `tests/`.
+
+## Releasing
+
+Pushing a tag `vX.Y.Z` runs the full workflow and, if every job passes,
+attaches the built sdist and wheel to a draft GitHub release and publishes
+them to PyPI. The build job checks that the wheel's `__version__` matches the
+tag. PyPI accepts the upload through trusted publishing, which requires a
+publisher on pypi.org for this repository, the workflow `build.yml` and the
+GitHub environment `pypi`. The draft release is published by hand.
 
 ## Benchmarks
 

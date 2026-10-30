@@ -64,8 +64,8 @@ asyncio.run(main())
   principles the code must keep
 - [docs/OPERATIONS.md](docs/OPERATIONS.md): runtime behavior, covering defaults
   and limits, failure and recovery, diagnostics, and troubleshooting hangs
-- [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md): setup, checks, test strategy and
-  CI
+- [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md): setup, checks, test strategy,
+  CI and releasing
 - [tests/conformance/README.md](tests/conformance/README.md): the test suite
   against a real Linux kernel
 - [bench/README.md](bench/README.md): benchmark method and measured results
