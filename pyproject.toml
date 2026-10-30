@@ -11,12 +11,33 @@ license = "0BSD"
 license-files = ["LICENSE", "LICENSES/*"]
 authors = [{ name = "René de Hesselle", email = "dehesselle@web.de" }]
 requires-python = ">=3.12"
+keywords = ["tcp", "ip", "userspace", "network-stack", "socks5", "vpn", "asyncio", "tunnel"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Framework :: AsyncIO",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Internet :: Proxy Servers",
+    "Topic :: System :: Networking",
+    "Typing :: Typed",
+]
 
 # Deliberately empty. The stack, the driver, the SOCKS server and the link
 # protocol need nothing but the standard library, and that is worth keeping
 # true -- it is what lets a consumer treat this as a detail rather than a
 # dependency tree. Only the httpx bridge needs anything, and it is an extra.
 dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/dehesselle/usernet"
+Documentation = "https://github.com/dehesselle/usernet/blob/master/docs/MANUAL.md"
+Issues = "https://github.com/dehesselle/usernet/issues"
+Changelog = "https://github.com/dehesselle/usernet/releases"
 
 [project.optional-dependencies]
 httpx = ["httpx>=0.27,<0.29"]

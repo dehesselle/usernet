@@ -14,8 +14,8 @@ bridge is an optional extra.
 ## Installation and usage
 
 ```sh
-uv add "usernet @ git+https://github.com/dehesselle/usernet@v0.6.0"
-uv add "usernet[httpx] @ git+https://github.com/dehesselle/usernet@v0.6.0"  # with the httpx bridge
+uv add usernet
+uv add "usernet[httpx]"  # with the httpx bridge
 ```
 
 The example below opens a connection through the stack. `VirtualLink` is the
@@ -57,18 +57,22 @@ asyncio.run(main())
 
 ## Documentation
 
-- [docs/MANUAL.md](docs/MANUAL.md): the library API, covering how to supply a
-  tunnel, the driver, streams, HTTP, SOCKS5, resolvers, errors, logging and the
-  test helpers
-- [docs/DESIGN.md](docs/DESIGN.md): architecture, seams, scope and the core
-  principles the code must keep
-- [docs/OPERATIONS.md](docs/OPERATIONS.md): runtime behavior, covering defaults
-  and limits, failure and recovery, diagnostics, and troubleshooting hangs
-- [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md): setup, checks, test strategy,
-  CI and releasing
-- [tests/conformance/README.md](tests/conformance/README.md): the test suite
-  against a real Linux kernel
-- [bench/README.md](bench/README.md): benchmark method and measured results
+<!-- Absolute links: this file is also the PyPI project description. -->
+
+- [docs/MANUAL.md](https://github.com/dehesselle/usernet/blob/master/docs/MANUAL.md):
+  the library API, covering how to supply a tunnel, the driver, streams, HTTP,
+  SOCKS5, resolvers, errors, logging and the test helpers
+- [docs/DESIGN.md](https://github.com/dehesselle/usernet/blob/master/docs/DESIGN.md):
+  architecture, seams, scope and the core principles the code must keep
+- [docs/OPERATIONS.md](https://github.com/dehesselle/usernet/blob/master/docs/OPERATIONS.md):
+  runtime behavior, covering defaults and limits, failure and recovery,
+  diagnostics, and troubleshooting hangs
+- [docs/DEVELOPMENT.md](https://github.com/dehesselle/usernet/blob/master/docs/DEVELOPMENT.md):
+  setup, checks, test strategy, CI and releasing
+- [tests/conformance/README.md](https://github.com/dehesselle/usernet/blob/master/tests/conformance/README.md):
+  the test suite against a real Linux kernel
+- [bench/README.md](https://github.com/dehesselle/usernet/blob/master/bench/README.md):
+  benchmark method and measured results
 
 ## AI disclosure
 
@@ -77,4 +81,4 @@ Generated code was tested, but not every line was reviewed in detail.
 
 ## License
 
-[0BSD](LICENSES/0BSD.txt)
+[0BSD](https://github.com/dehesselle/usernet/blob/master/LICENSES/0BSD.txt)
