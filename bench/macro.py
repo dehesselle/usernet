@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 René de Hesselle <dehesselle@web.de>
+#
+# SPDX-License-Identifier: 0BSD
+
 """Whole-stack throughput and latency against real Linux TCP.
 
     python bench/macro.py download [--bytes N] [--idle K] [--profile FILE]

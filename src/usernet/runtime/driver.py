@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 René de Hesselle <dehesselle@web.de>
+#
+# SPDX-License-Identifier: 0BSD
+
 """The driver: the only task permitted to touch the stack.
 
 The concurrency invariant that makes this safe without any locking: stack

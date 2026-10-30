@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 René de Hesselle <dehesselle@web.de>
+#
+# SPDX-License-Identifier: 0BSD
+
 """A SOCKS5 proxy in front of the tunnel.
 
 This is how ordinary tools reach the VPN: ``curl --socks5``, a browser, or

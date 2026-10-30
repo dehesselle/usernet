@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 René de Hesselle <dehesselle@web.de>
+#
+# SPDX-License-Identifier: 0BSD
+
 """The kernel's end of the macro benchmarks: an ordinary socket server.
 
 Runs as its own process, pinned to its own core, for the same reason the

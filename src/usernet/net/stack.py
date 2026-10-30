@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 René de Hesselle <dehesselle@web.de>
+#
+# SPDX-License-Identifier: 0BSD
+
 """The userspace stack: packet demultiplexing, socket table, and timers.
 
 Implements :class:`~usernet.net.backend.NetworkBackend`. Everything here is

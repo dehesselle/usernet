@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 René de Hesselle <dehesselle@web.de>
+#
+# SPDX-License-Identifier: 0BSD
+
 """TLS over a stream we own, via ``ssl.MemoryBIO``.
 
 The REST case is HTTPS, so TLS has to run *inside* the tunnel, over a

@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 René de Hesselle <dehesselle@web.de>
+#
+# SPDX-License-Identifier: 0BSD
+
 """TCP segment codec and sequence arithmetic.
 
 Sequence numbers are 32-bit and wrap. Every comparison must therefore be made

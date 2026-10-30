@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 René de Hesselle <dehesselle@web.de>
+#
+# SPDX-License-Identifier: 0BSD
+
 """A TLS-terminating HTTP responder, driven byte by byte.
 
 Lets the virtual peer answer ``https://`` through the tunnel, which is what

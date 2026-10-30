@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 René de Hesselle <dehesselle@web.de>
+#
+# SPDX-License-Identifier: 0BSD
+
 """StaticResolver: a fixed table, matched exactly, with no fallback."""
 
 from __future__ import annotations

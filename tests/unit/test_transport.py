@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 René de Hesselle <dehesselle@web.de>
+#
+# SPDX-License-Identifier: 0BSD
+
 """``StackTransport``: the bridge that makes the stack look like a socket.
 
 Driven against a fake :class:`ByteStream` rather than a real tunnel, because

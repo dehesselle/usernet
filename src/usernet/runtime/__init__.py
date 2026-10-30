@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 René de Hesselle <dehesselle@web.de>
+#
+# SPDX-License-Identifier: 0BSD
+
 """The asyncio shell around the sans-IO stack.
 
 Everything that touches a socket, a clock, or a timer lives here. The stack

@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 René de Hesselle <dehesselle@web.de>
+#
+# SPDX-License-Identifier: 0BSD
+
 """The sans-IO TCP/IP stack.
 
 Nothing in this package performs I/O, reads a clock, or uses global

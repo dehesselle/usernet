@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 René de Hesselle <dehesselle@web.de>
+#
+# SPDX-License-Identifier: 0BSD
+
 """Our TCP against Linux TCP.
 
 This is the layer the vnet suite cannot reach. There, two instances of our own

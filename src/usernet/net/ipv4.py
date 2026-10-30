@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 René de Hesselle <dehesselle@web.de>
+#
+# SPDX-License-Identifier: 0BSD
+
 """IPv4 header codec.
 
 Sans-IO, so addresses go through :mod:`ipaddress` rather than ``socket`` --

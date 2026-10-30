@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 René de Hesselle <dehesselle@web.de>
+#
+# SPDX-License-Identifier: 0BSD
+
 """An in-memory :class:`~usernet.link.IpLink` carrying IP packets to a peer.
 
 Stands in for a real tunnel, so the stack and driver can be exercised with

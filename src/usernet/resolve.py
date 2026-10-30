@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 René de Hesselle <dehesselle@web.de>
+#
+# SPDX-License-Identifier: 0BSD
+
 """Turning names into addresses the tunnel can reach.
 
 A resolver is any async ``str -> str`` callable, handed to the

@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 René de Hesselle <dehesselle@web.de>
+#
+# SPDX-License-Identifier: 0BSD
+
 """Encoding outbound TCP: the fused builder and what the stack puts on the wire.
 
 ``build_tcp_ipv4`` exists only to save copies; it must never mean different

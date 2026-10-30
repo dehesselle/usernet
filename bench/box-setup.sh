@@ -1,4 +1,9 @@
 #!/bin/sh
+
+# SPDX-FileCopyrightText: 2026 René de Hesselle <dehesselle@web.de>
+#
+# SPDX-License-Identifier: 0BSD
+
 # Prepare a fresh Ubuntu box for bench/run.py. Run as root from the
 # candidate checkout:
 #

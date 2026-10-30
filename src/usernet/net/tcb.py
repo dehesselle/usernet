@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 René de Hesselle <dehesselle@web.de>
+#
+# SPDX-License-Identifier: 0BSD
+
 """The TCP state machine, client side only.
 
 Covers active open; in-order and out-of-order data with reassembly; cumulative

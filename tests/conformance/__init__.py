@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 René de Hesselle <dehesselle@web.de>
+#
+# SPDX-License-Identifier: 0BSD
+
 """L3 conformance: our TCP against a real Linux kernel over a tun device.
 
 Everything else in the test tree proves self-consistency. The vnet suite runs

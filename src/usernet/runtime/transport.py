@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 René de Hesselle <dehesselle@web.de>
+#
+# SPDX-License-Identifier: 0BSD
+
 """An ``asyncio.Transport`` over a tunnel stream.
 
 This is what makes the stack usable by code that was never written for it.

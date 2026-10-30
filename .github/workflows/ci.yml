@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 René de Hesselle <dehesselle@web.de>
+#
+# SPDX-License-Identifier: 0BSD
+
 name: CI
 
 on:
@@ -6,6 +10,14 @@ on:
   pull_request:
 
 jobs:
+  reuse:
+    # Licensing doesn't vary by platform or Python version, so once is enough.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uvx reuse lint
+
   check:
     strategy:
       fail-fast: false

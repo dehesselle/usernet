@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 René de Hesselle <dehesselle@web.de>
+#
+# SPDX-License-Identifier: 0BSD
+
 """ICMP codec -- echo, and the unreachable errors that matter.
 
 Echo is the fastest possible "is this tunnel actually carrying traffic" check,

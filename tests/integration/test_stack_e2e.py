@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 René de Hesselle <dehesselle@web.de>
+#
+# SPDX-License-Identifier: 0BSD
+
 """The stack and driver end to end, over a virtual link.
 
 No TLS, no gateway, no network -- but the real IPv4 codec, the real TCP state

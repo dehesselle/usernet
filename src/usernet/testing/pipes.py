@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 René de Hesselle <dehesselle@web.de>
+#
+# SPDX-License-Identifier: 0BSD
+
 """Two pipes standing in for stdin and stdout, with the test on the far end.
 
 The companion to :class:`~usernet.runtime.stdio.StdioBridge`: anything that

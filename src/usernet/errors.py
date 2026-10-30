@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 René de Hesselle <dehesselle@web.de>
+#
+# SPDX-License-Identifier: 0BSD
+
 """Exception hierarchy for usernet.
 
 Every error raised below the tunnel derives from :class:`UsernetError`. The

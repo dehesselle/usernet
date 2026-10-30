@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 René de Hesselle <dehesselle@web.de>
+#
+# SPDX-License-Identifier: 0BSD
+
 """What the SOCKS server exposes about its live relays.
 
 A long-running proxy is easier to trust when it can show what it is carrying:

@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 René de Hesselle <dehesselle@web.de>
+#
+# SPDX-License-Identifier: 0BSD
+
 """The packet trace the L3 conformance suite prints when a test fails.
 
 Worth testing on its own, and worth testing here rather than there: the

@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 René de Hesselle <dehesselle@web.de>
+#
+# SPDX-License-Identifier: 0BSD
+
 """A minimal server-side TCP implementation, for tests only.
 
 The shipping stack is client-only and deliberately has no ``LISTEN`` or

@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 René de Hesselle <dehesselle@web.de>
+#
+# SPDX-License-Identifier: 0BSD
+
 """A SOCKS5 client, for reaching the VPN through a proxy someone else is running.
 
 An ``nc``-style relay uses this so an ``ssh`` session can borrow a tunnel that

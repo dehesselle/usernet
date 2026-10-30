@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 René de Hesselle <dehesselle@web.de>
+#
+# SPDX-License-Identifier: 0BSD
+
 """ICMP against the kernel.
 
 Small, but it is the check that separates "the tunnel carries nothing" from

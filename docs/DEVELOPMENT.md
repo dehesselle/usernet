@@ -15,14 +15,15 @@ needs the tags, which is why CI checks out with `fetch-depth: 0`.
 
 ## Checks
 
-CI runs these on Windows and Ubuntu, with Python 3.12 and 3.13. Run all four
-before committing.
+CI runs the first four on Windows and Ubuntu, with Python 3.12 and 3.13, and
+the REUSE check once on Ubuntu. Run all five before committing.
 
 ```sh
 uv run ruff check .
 uv run ruff format --check .
 uv run mypy src
 uv run pytest -q -m "not linux_only"
+uvx reuse lint
 ```
 
 - Ruff's banned-API rule (TID251) keeps `usernet.net` sans-IO. The other
@@ -32,6 +33,9 @@ uv run pytest -q -m "not linux_only"
   `usernet.routing`, the code with the most correctness risk.
 - pytest has a global 30 s timeout. A broken TCP stack hangs rather than
   failing, and would otherwise wedge CI.
+- The project is REUSE-compliant. New files start with the SPDX header that
+  `reuse annotate` writes; files that can't carry a comment get covered in
+  `REUSE.toml`.
 
 ## Test strategy
 

@@ -69,3 +69,12 @@ asyncio.run(main())
 - [tests/conformance/README.md](tests/conformance/README.md): the test suite
   against a real Linux kernel
 - [bench/README.md](bench/README.md): benchmark method and measured results
+
+## AI disclosure
+
+Substantial parts of this code were generated with Sonnet 5.x/Opus 5.x.
+Generated code was tested, but not every line was reviewed in detail.
+
+## License
+
+[0BSD](LICENSES/0BSD.txt)

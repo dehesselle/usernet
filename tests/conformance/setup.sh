@@ -1,4 +1,9 @@
 #!/bin/sh
+
+# SPDX-FileCopyrightText: 2026 René de Hesselle <dehesselle@web.de>
+#
+# SPDX-License-Identifier: 0BSD
+
 # Create the tun device the L3 conformance suite drives.
 #
 # Root is needed to create the interface and give it an address; it is not

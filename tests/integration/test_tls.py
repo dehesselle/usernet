@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 René de Hesselle <dehesselle@web.de>
+#
+# SPDX-License-Identifier: 0BSD
+
 """The MemoryBIO TLS wrapper, against a real TLS server.
 
 Real OpenSSL on both sides over a loopback socket. A fake would prove nothing:

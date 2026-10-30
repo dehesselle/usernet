@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 René de Hesselle <dehesselle@web.de>
+#
+# SPDX-License-Identifier: 0BSD
+
 """The stack's timer heap, checked against the scan it replaced.
 
 ``poll_at`` used to take the minimum of every TCB's ``next_deadline`` and

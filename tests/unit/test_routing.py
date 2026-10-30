@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 René de Hesselle <dehesselle@web.de>
+#
+# SPDX-License-Identifier: 0BSD
+
 """Which destinations the tunnel will carry.
 
 Cheap to test and expensive to get wrong: a false negative refuses a host the

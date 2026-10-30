@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 René de Hesselle <dehesselle@web.de>
+#
+# SPDX-License-Identifier: 0BSD
+
 """RFC 1071 ones-complement checksums.
 
 Used by IPv4, ICMP, TCP, and UDP. This runs on every packet in both

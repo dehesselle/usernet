@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 René de Hesselle <dehesselle@web.de>
+#
+# SPDX-License-Identifier: 0BSD
+
 """A Linux tun device presented as an :class:`~usernet.link.IpLink`.
 
 The payoff of the layering: the driver, the stack and every socket operation

@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 René de Hesselle <dehesselle@web.de>
+#
+# SPDX-License-Identifier: 0BSD
+
 """An httpcore network backend that dials through the tunnel.
 
 httpcore exposes a documented seam -- ``AsyncNetworkBackend`` -- for replacing

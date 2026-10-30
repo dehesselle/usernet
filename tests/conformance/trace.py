@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 René de Hesselle <dehesselle@web.de>
+#
+# SPDX-License-Identifier: 0BSD
+
 """A readable packet trace, printed when a conformance test fails.
 
 These tests run on a machine the author cannot reach, so a failure has to

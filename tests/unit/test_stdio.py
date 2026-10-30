@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 René de Hesselle <dehesselle@web.de>
+#
+# SPDX-License-Identifier: 0BSD
+
 """The threaded stdio bridge, over real OS pipes.
 
 Real pipes rather than fakes, because the whole reason this class exists is

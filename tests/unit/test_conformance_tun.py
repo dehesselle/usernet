@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 René de Hesselle <dehesselle@web.de>
+#
+# SPDX-License-Identifier: 0BSD
+
 """The Linux-only bits of the tun helper, checked from anywhere.
 
 ``TUNSETIFF`` is a magic number and ``struct ifreq`` is a magic layout. Both

@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 René de Hesselle <dehesselle@web.de>
+#
+# SPDX-License-Identifier: 0BSD
+
 """The seam between a tunnel and the stack that rides on it.
 
 Everything below this module -- the sans-IO stack, the driver, the SOCKS

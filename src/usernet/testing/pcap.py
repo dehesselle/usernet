@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 René de Hesselle <dehesselle@web.de>
+#
+# SPDX-License-Identifier: 0BSD
+
 """Reading back what :class:`~usernet.pcap.PcapWriter` wrote.
 
 The writer exists so that a later "it hangs" investigation has a capture to

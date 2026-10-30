@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 René de Hesselle <dehesselle@web.de>
+#
+# SPDX-License-Identifier: 0BSD
+
 """Received checksums are verified at every layer, not only the IP header.
 
 RFC 1122 4.2.2.7 (RFC 9293 MUST-3): a TCP receiver MUST check the checksum.

@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 René de Hesselle <dehesselle@web.de>
+#
+# SPDX-License-Identifier: 0BSD
+
 """Secrets must not reach a log line.
 
 Redaction lives in a filter rather than at call sites: anything that relies on

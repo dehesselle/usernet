@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 René de Hesselle <dehesselle@web.de>
+#
+# SPDX-License-Identifier: 0BSD
+
 """Virtual network harness -- a peer for the stack to talk to.
 
 Gives the stack a peer to talk to without any real network, and without the

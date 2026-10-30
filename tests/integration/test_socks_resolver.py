@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 René de Hesselle <dehesselle@web.de>
+#
+# SPDX-License-Identifier: 0BSD
+
 """The SOCKS server's name-resolution seam, end to end over a virtual link.
 
 A SOCKS5 request may carry a hostname instead of an address, and the point of

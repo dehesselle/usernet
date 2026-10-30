@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 René de Hesselle <dehesselle@web.de>
+#
+# SPDX-License-Identifier: 0BSD
+
 """usernet -- a userspace TCP/IP stack for tunnels that carry raw IP.
 
 A VPN client written against this package never asks the operating system for

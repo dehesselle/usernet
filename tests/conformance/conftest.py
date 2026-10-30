@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 René de Hesselle <dehesselle@web.de>
+#
+# SPDX-License-Identifier: 0BSD
+
 """Fixtures for the L3 conformance suite.
 
 Two things matter more here than in the rest of the tree.

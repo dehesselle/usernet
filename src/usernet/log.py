@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 René de Hesselle <dehesselle@web.de>
+#
+# SPDX-License-Identifier: 0BSD
+
 """Logging setup, with redaction that does not rely on remembering.
 
 Secrets are stripped by a filter on the handler rather than at each call site.

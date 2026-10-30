@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 René de Hesselle <dehesselle@web.de>
+#
+# SPDX-License-Identifier: 0BSD
+
 """Minimal pcap writer for tunnel IP traffic.
 
 Roughly forty lines that make every later problem observable in Wireshark

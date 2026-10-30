@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 René de Hesselle <dehesselle@web.de>
+#
+# SPDX-License-Identifier: 0BSD
+
 """A/B benchmark runner: two checkouts, same benchmarks, interleaved.
 
     python bench/run.py --baseline ../usernet-base --candidate . [--reps 10]

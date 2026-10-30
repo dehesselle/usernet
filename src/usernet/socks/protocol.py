@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 René de Hesselle <dehesselle@web.de>
+#
+# SPDX-License-Identifier: 0BSD
+
 """SOCKS5 wire format (RFC 1928) and username/password auth (RFC 1929).
 
 Sans-IO: everything here takes or returns bytes and never touches a socket.

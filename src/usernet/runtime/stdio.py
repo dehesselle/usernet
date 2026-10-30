@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 René de Hesselle <dehesselle@web.de>
+#
+# SPDX-License-Identifier: 0BSD
+
 """Blocking stdin/stdout, bridged onto the event loop by two threads.
 
 You cannot select on a pipe under the Windows proactor loop, so ``add_reader``

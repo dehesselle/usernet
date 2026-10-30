@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 René de Hesselle <dehesselle@web.de>
+#
+# SPDX-License-Identifier: 0BSD
+
 """The SOCKS5 codec.
 
 Byte-level and pure. The reply codes matter more than they look: they are

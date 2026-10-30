@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 René de Hesselle <dehesselle@web.de>
+#
+# SPDX-License-Identifier: 0BSD
+
 """Which destinations the tunnel will actually carry.
 
 Lives above :mod:`usernet.link` (it reads a :class:`~usernet.link.LinkConfig`)

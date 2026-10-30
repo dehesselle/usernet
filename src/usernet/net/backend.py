@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 René de Hesselle <dehesselle@web.de>
+#
+# SPDX-License-Identifier: 0BSD
+
 """The sans-IO contract between the network stack and the asyncio driver.
 
 This is the seam that keeps the risky code testable and the fast code

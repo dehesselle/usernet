@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 René de Hesselle <dehesselle@web.de>
+#
+# SPDX-License-Identifier: 0BSD
+
 """Guards on the httpcore/httpx interface we plug into.
 
 ``network_backend`` is a real constructor argument of

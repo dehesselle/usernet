@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 René de Hesselle <dehesselle@web.de>
+#
+# SPDX-License-Identifier: 0BSD
+
 """Small asyncio helpers shared across layers.
 
 Lives at the top level rather than in ``runtime`` because a tunnel's link

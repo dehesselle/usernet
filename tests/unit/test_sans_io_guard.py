@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 René de Hesselle <dehesselle@web.de>
+#
+# SPDX-License-Identifier: 0BSD
+
 """The sans-IO contract, checked at runtime.
 
 Two mechanisms guard :mod:`usernet.net`, and they cover different things:

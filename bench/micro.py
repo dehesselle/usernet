@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 René de Hesselle <dehesselle@web.de>
+#
+# SPDX-License-Identifier: 0BSD
+
 """Per-packet CPU cost of the stack, as pyperf micro-benchmarks.
 
     uv run --with pyperf python bench/micro.py -o micro.json
