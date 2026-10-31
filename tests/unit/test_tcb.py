@@ -1519,6 +1519,34 @@ def test_a_peer_that_never_answers_probes_eventually_fails() -> None:
     assert isinstance(h.tcb.error, ConnectionTimeout)
 
 
+def test_a_segment_restores_the_probe_budget_but_not_the_interval() -> None:
+    """The budget is counted in probes. A segment between two of them restores
+    the count and leaves the timer running: postponing the next probe on every
+    arrival would let a stream of rejected segments put probing off forever."""
+    h = Harness(rto_min_ms=250, max_retransmits=3)
+    h.establish(window=0)
+    h.tcb.send(b"blocked", h.now)
+    h.sent()
+    for _ in range(2):
+        assert h.tcb.persist_deadline is not None
+        h.advance(h.tcb.persist_deadline - h.now)
+        h.sent()
+
+    deadline = h.tcb.persist_deadline
+    h.advance(1)
+    h.peer(seq=seq_add(PEER_ISN, 1), ack=seq_add(ISN, 1), flags=Flag.ACK, window=0)
+    h.sent()
+    assert h.tcb.persist_deadline == deadline
+
+    probes = 0
+    while h.tcb.persist_deadline is not None:
+        h.advance(h.tcb.persist_deadline - h.now)
+        probes += len(h.sent())
+
+    assert probes == 3  # max_retransmits again, counted from the segment
+    assert isinstance(h.tcb.error, ConnectionTimeout)
+
+
 def test_a_peer_that_answers_probes_keeps_the_connection() -> None:
     """RFC 1122 4.2.2.17: the window may stay shut for as long as the peer
     likes, and a peer answering every probe is still there. Only silence

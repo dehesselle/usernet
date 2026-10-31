@@ -31,6 +31,7 @@ business. This suite exists for everything a well-behaved kernel never sends.
 from __future__ import annotations
 
 import os
+from itertools import pairwise
 
 import pytest
 from hypothesis import settings
@@ -197,8 +198,9 @@ class TcbAgainstAnything(RuleBasedStateMachine):
         self.una = self.tcb.snd_una
         self.progressed_at = self.now
         """When an ACK last moved snd_una: the retransmission budget's start."""
-        self.heard_at = self.now
-        """When any segment last arrived: the persist budget's start."""
+        self.expiries: list[int] = []
+        """When the persist timer expired since persist began or any segment
+        last arrived: the persist budget, spent."""
         self.probing = False
 
         # Our side, as the application sees it.
@@ -232,7 +234,7 @@ class TcbAgainstAnything(RuleBasedStateMachine):
     # --- the peer ------------------------------------------------------
 
     def receive(self, segment: TcpSegment) -> None:
-        self.heard_at = self.now
+        self.expiries.clear()
         self.tcb.on_segment(segment, self.now)
 
     def our_offset(self, seq: int) -> int:
@@ -531,8 +533,7 @@ class TcbAgainstAnything(RuleBasedStateMachine):
     @rule(milliseconds=delays)
     def time_passes(self, milliseconds: int) -> None:
         self.now += milliseconds
-        self.tcb.on_tick(self.now)
-        self.settle()
+        self.tick()
 
     @precondition(lambda self: self.tcb.next_deadline() is not None)
     @rule()
@@ -540,6 +541,13 @@ class TcbAgainstAnything(RuleBasedStateMachine):
         deadline = self.tcb.next_deadline()
         assert deadline is not None
         self.now = max(self.now, deadline)
+        self.tick()
+
+    def tick(self) -> None:
+        """A tick fires at most one probe, however many intervals it skips."""
+        deadline = self.tcb.persist_deadline
+        if deadline is not None and self.now >= deadline:
+            self.expiries.append(self.now)
         self.tcb.on_tick(self.now)
         self.settle()
 
@@ -572,6 +580,8 @@ class TcbAgainstAnything(RuleBasedStateMachine):
             self.una = tcb.snd_una
             self.progressed_at = self.now
         self.probing = tcb.persist_deadline is not None
+        if not self.probing:
+            self.expiries.clear()
 
     def check_segment(self, segment: TcpSegment) -> None:
         tcb = self.tcb
@@ -661,17 +671,24 @@ class TcbAgainstAnything(RuleBasedStateMachine):
         however far the RTO has backed off. The persist budget restarts with
         any segment at all: RFC 1122 4.2.2.17 lets a connection give up on a
         peer that stopped answering its probes, never on one that answers them
-        with the window still shut.
+        with the window still shut. That budget is counted in expiries, not
+        time: a segment restores the count but leaves the timer running, so
+        the first probe after it may follow at once.
         """
         config = self.tcb.config
         if self.probing:
-            since, what = self.heard_at, "the last segment"
-        else:
-            since, what = self.progressed_at, "progress"
-        quiet = self.now - since
+            expiries = self.expiries
+            assert len(expiries) == config.max_retransmits + 1, (
+                f"gave up on expiry {len(expiries)} since the last segment; "
+                f"the budget is {config.max_retransmits} probes"
+            )
+            gaps = [later - earlier for earlier, later in pairwise(expiries)]
+            assert min(gaps) >= config.rto_min_ms, f"probed {gaps} ms apart"
+            return
+        quiet = self.now - self.progressed_at
         budget = (config.max_retransmits + 1) * config.rto_min_ms
         assert quiet >= budget, (
-            f"gave up {quiet} ms after {what}; the budget is at least {budget} ms"
+            f"gave up {quiet} ms after progress; the budget is at least {budget} ms"
         )
 
     # --- what holds between steps --------------------------------------
