@@ -22,4 +22,4 @@ Documentation rules:
 - Nothing in this package may refer to a consumer's CLI or tunnel protocol,
   except as an example.
 
-Run the five checks from DEVELOPMENT.md before committing.
+Run the six checks from DEVELOPMENT.md before committing.

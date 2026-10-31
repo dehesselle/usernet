@@ -36,6 +36,11 @@ jobs:
       - name: Check REUSE compliance
         run: uvx reuse lint
 
+      # Settings are in .markdownlint-cli2.yaml. This release bundles
+      # markdownlint-cli2 0.24.0; keep the pin in docs/DEVELOPMENT.md aligned.
+      - name: Lint Markdown
+        uses: DavidAnson/markdownlint-cli2-action@696eb3f2509270d7b882d2aa68347bc676e7af34 # v25.0.0
+
   #-----------------------------------------------------------------------------
 
   Test:

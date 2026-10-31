@@ -89,7 +89,7 @@ with the baseline.
 | echo p50 µs | 181 | −1% | −0% | +1% | +0% | +0% | −7% | **−12%** |
 | download, 300 idle: MB/s | 45.9 | +2% | +3% | +4% | +7% | +6% | +14% | **+51%** |
 | echo, 300 idle: p50 µs | 394 | −1% | −55% | −55% | −55% | −55% | −57% | **−60%** |
-| download at 20 ms / 2% loss: s | 12.7 | within noise throughout |||||| **8.77 → 8.74** |
+| download at 20 ms / 2% loss: s | 12.7 | noise | noise | noise | noise | noise | noise | **8.77 → 8.74** |
 
 The loss scenario is too noisy for 10 runs to say much: single runs range
 from about 4 to 14 s on either side, depending on where the losses fall. The

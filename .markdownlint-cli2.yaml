@@ -1,0 +1,14 @@
+# SPDX-FileCopyrightText: 2026 René de Hesselle <dehesselle@web.de>
+#
+# SPDX-License-Identifier: 0BSD
+
+config:
+  default: true
+  # Files wrap at different widths, and tables, links and code blocks run past
+  # any of them.
+  MD013: false
+
+globs:
+  - "**/*.md"
+
+gitignore: true

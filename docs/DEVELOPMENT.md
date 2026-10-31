@@ -15,13 +15,14 @@ needs the tags, which is why CI checks out with `fetch-depth: 0`.
 
 ## Checks
 
-CI runs ruff and the REUSE check once on Ubuntu, and mypy and pytest on
-Ubuntu, Windows and macOS with Python 3.12, plus Ubuntu with 3.14. Run all
-five before committing.
+CI runs ruff, markdownlint and the REUSE check once on Ubuntu, and mypy and
+pytest on Ubuntu, Windows and macOS with Python 3.12, plus Ubuntu with 3.14.
+Run all six before committing.
 
 ```sh
 uvx --from 'ruff~=0.16.0' ruff check .
 uvx --from 'ruff~=0.16.0' ruff format --check .
+uvx --from nodejs-wheel npx --yes markdownlint-cli2@0.24.0
 uv run mypy src
 uv run pytest -q -m "not linux_only"
 uvx reuse lint
@@ -30,6 +31,12 @@ uvx reuse lint
 - Ruff isn't a project dependency. `required-version` in `pyproject.toml`
   and the pin in `.github/workflows/build.yml` are bumped together, once a
   new minor release's findings have been reviewed.
+- markdownlint runs on Node, which `nodejs-wheel` provides, so no Node
+  install is needed. Its settings are in `.markdownlint-cli2.yaml`, which the
+  VS Code markdownlint extension reads too. CI uses
+  `markdownlint-cli2-action`, which bundles a fixed markdownlint-cli2. The
+  version above is bumped together with that action's pin in
+  `.github/workflows/build.yml`.
 - Ruff's banned-API rule (TID251) keeps `usernet.net` sans-IO. The other
   directories opt out of it in `pyproject.toml`. Don't add `src/usernet/net`
   to that list.
