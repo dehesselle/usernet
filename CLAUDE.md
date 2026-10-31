@@ -1,7 +1,7 @@
 # CLAUDE.md
 
 usernet is a userspace TCP/IPv4 stack, driver and SOCKS5 proxy for VPN clients
-whose tunnel carries raw IP; `pyac` and `pyts` build on it.
+whose tunnel carries raw IP.
 
 - Read docs/DESIGN.md before architectural changes, and respect its core
   principles. Before changing a module, read its docstring: that is where the

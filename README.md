@@ -7,9 +7,8 @@ decapsulated packets to usernet and gets back connections, an asyncio stream
 pair, an httpx client, or a local SOCKS5 proxy that ordinary tools can use.
 
 usernet does not provide the tunnel itself. A tunnel is anything that
-implements `IpLink`: `pyac` supplies CSTP over TLS, and `pyts` supplies
-WireGuard over DERP. The library needs only the standard library; the httpx
-bridge is an optional extra.
+implements `IpLink`, such as CSTP over TLS or WireGuard over DERP. The library
+needs only the standard library; the httpx bridge is an optional extra.
 
 ## Installation and usage
 

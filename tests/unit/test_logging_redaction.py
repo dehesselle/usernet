@@ -91,11 +91,11 @@ def test_configure_attaches_to_every_named_logger() -> None:
     # silently loses the stack's diagnostics, and notices at the worst moment.
     stream = io.StringIO()
     try:
-        configure(1, loggers=("usernet", "pyac"), patterns=CALLER_PATTERNS, stream=stream)
+        configure(1, loggers=("usernet", "client"), patterns=CALLER_PATTERNS, stream=stream)
         logging.getLogger("usernet.runtime").debug("stack says hello")
-        logging.getLogger("pyac.cstp").debug("tunnel says webvpn=%s", REAL_TOKEN)
+        logging.getLogger("client.tunnel").debug("tunnel says webvpn=%s", REAL_TOKEN)
     finally:
-        for name in ("usernet", "pyac"):
+        for name in ("usernet", "client"):
             logger = logging.getLogger(name)
             logger.handlers.clear()
             logger.setLevel(logging.NOTSET)

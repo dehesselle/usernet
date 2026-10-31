@@ -238,8 +238,8 @@ class PoolTransport(httpx.AsyncBaseTransport):
     Split out from :class:`TunnelTransport` because "where do the bytes come
     from" is the only thing a caller ever wants to change, and everything else
     -- HTTP/2 flow control, streaming response bodies, the error translation --
-    is httpcore's and worth not reimplementing. ``pyts`` uses this to run
-    HTTP/2 inside a Noise session, which is not a tunnel and has no driver.
+    is httpcore's and worth not reimplementing. This is how HTTP/2 runs
+    inside, say, a Noise session, which is not a tunnel and has no driver.
 
     The alternative is reaching into ``client._transport._pool`` to swap the
     backend after the fact, which works until httpx renames something.

@@ -16,9 +16,9 @@ ordinary asyncio streams.
     await Socks5Server(driver, port=1080).start()
 
 The one thing you must supply is the tunnel: an :class:`~usernet.link.IpLink`
-that moves packets between here and the far side. ``pyac`` supplies CSTP over
-TLS, ``pyts`` WireGuard over DERP, and :mod:`usernet.testing` supplies one made
-of nothing at all.
+that moves packets between here and the far side. A VPN client supplies one
+carrying, say, CSTP over TLS or WireGuard over DERP; :mod:`usernet.testing`
+supplies one made of nothing at all.
 
 Importing this package stays free of side effects: the names below are bound
 lazily, so ``import usernet`` does not drag in asyncio and the whole stack for

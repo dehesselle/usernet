@@ -7,9 +7,9 @@
 Everything below this module -- the sans-IO stack, the driver, the SOCKS
 server -- is written against :class:`IpLink` and nothing else. A tunnel is
 whatever can carry raw IPv4 packets in both directions and say what address it
-assigned us: CSTP over TLS in ``pyac``, WireGuard over DERP in ``pyts``, a
-Linux tun device in the conformance tests, an in-memory queue in the unit
-tests. None of those appear in this package's imports, which is the point.
+assigned us: CSTP over TLS, WireGuard over DERP, a Linux tun device in the
+conformance tests, an in-memory queue in the unit tests. None of those appear
+in this package's imports, which is the point.
 
 :class:`LinkConfig` is a ``Protocol`` rather than a base class deliberately. A
 tunnel's configuration object is mostly tunnel-specific -- DPD timers, rekey

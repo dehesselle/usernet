@@ -59,8 +59,8 @@ Each seam is a `Protocol`, not a base class, and each one has a reason.
   tunnel reuses the same transport code.
 - **`PoolTransport`.** It is the httpx transport with a pluggable httpcore
   network backend. `TunnelTransport` is the variant that dials through a
-  driver. `pyts` uses `PoolTransport` to run HTTP/2 inside a Noise session,
-  which has no driver. See [http.py](../src/usernet/http.py).
+  driver. `PoolTransport` itself can run HTTP/2 over a stream that has no
+  driver, such as a Noise session. See [http.py](../src/usernet/http.py).
 - **`Resolver`.** A resolver is any async `str -> str` callable. Which resolver
   a tunnel needs (MagicDNS, a fixed table, none) is a property of the tunnel,
   so the consumer chooses. See [resolve.py](../src/usernet/resolve.py).

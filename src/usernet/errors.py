@@ -8,10 +8,10 @@ Every error raised below the tunnel derives from :class:`UsernetError`. The
 ``NetworkError`` branch mirrors the errors an ordinary socket would raise, so
 the SOCKS5 layer can map them onto reply codes with a single table.
 
-A tunnel implementation on top of this package (``pyac``, ``pyts``) roots its
-own hierarchy here, so that ``except`` on its base class keeps catching stack
-and socket failures too. What must *not* happen is the inverse: nothing in this
-package may know what a gateway, a tailnet, or a login is.
+A tunnel implementation on top of this package roots its own hierarchy here,
+so that ``except`` on its base class keeps catching stack and socket failures
+too. What must *not* happen is the inverse: nothing in this package may know
+what a gateway, a tailnet, or a login is.
 """
 
 from __future__ import annotations
