@@ -16,6 +16,7 @@ failure this suite exists to catch.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import hashlib
 import secrets
 import socket
@@ -369,8 +370,14 @@ async def test_connections_can_be_opened_concurrently(driver: Driver, serve: Ser
 async def test_a_reset_mid_connection_surfaces_as_an_error(driver: Driver, serve: Serve) -> None:
     """SO_LINGER 0 makes the kernel send a RST instead of a FIN. We must report
     it as an error rather than as a clean end of stream, or a truncated
-    response silently looks complete."""
-    import socket
+    response silently looks complete.
+
+    On a lossy link the RST may be lost, and it is never resent: the kernel
+    has already forgotten the socket, and with nothing of ours outstanding we
+    send nothing it would answer. So we poke every second. Once the kernel
+    has let go, a poke is retransmitted until it gets through, and the kernel
+    answers it with a RST. One poke is not enough: if our request was lost, the
+    first poke can reach the kernel before it has aborted."""
     import struct
 
     async def handler(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
@@ -383,8 +390,19 @@ async def test_a_reset_mid_connection_surfaces_as_an_error(driver: Driver, serve
     stream = await within(10, "the handshake", driver.connect(HOST_IP, port))
     await within(10, "the write", stream.write(b"go"))
 
-    with pytest.raises(NetworkError):
-        await within(15, "the RST to be reported", stream.read_all())
+    async def poke() -> None:
+        with contextlib.suppress(NetworkError):
+            while True:
+                await asyncio.sleep(1)
+                await stream.write(b"still there?")
+
+    poker = asyncio.create_task(poke()) if IMPAIRED else None
+    try:
+        with pytest.raises(NetworkError):
+            await within(15, "the RST to be reported", stream.read_all())
+    finally:
+        if poker is not None:
+            poker.cancel()
 
 
 async def test_no_segment_exceeds_the_kernels_mss(
