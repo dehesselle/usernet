@@ -18,6 +18,8 @@ whatever happened:
   window we offered;
 * memory stays within the configured buffers;
 * nothing is outstanding without a timer that will recover it;
+* the timers stay within their configured bounds, and a connection gives up
+  only after its whole retransmission budget has passed without progress;
 * the state only moves forward, and a closed connection stays silent.
 
 The peer is a model, not a TCP. It is sane -- its sequence numbers and
@@ -41,7 +43,7 @@ from hypothesis.stateful import (
     rule,
 )
 
-from usernet.errors import ConnectionRefused, ConnectionReset, NetworkError
+from usernet.errors import ConnectionRefused, ConnectionReset, ConnectionTimeout, NetworkError
 from usernet.net.tcb import State, Tcb, TcbConfig
 from usernet.net.tcp import (
     MAX_WINDOW,
@@ -122,6 +124,13 @@ windows = st.one_of(st.integers(0, MAX_WINDOW), st.sampled_from([0, 1, MAX_WINDO
 delays = st.one_of(st.integers(0, 3000), st.sampled_from([40, 250, 1000, 15_000, 60_000]))
 peer_mss = st.one_of(st.none(), st.integers(0, 0xFFFF))
 peer_window_scale = st.one_of(st.none(), st.integers(0, MAX_WINDOW_SCALE))
+# (rto_min_ms, rto_initial_ms, rto_max_ms). With the defaults, holding the RTO
+# at its cap takes seven timeouts with progress between them, a sequence a run
+# of 100 steps almost never finds. A low cap gets there in a few, and a fixed
+# RTO starts there, which also makes the retransmission budget exact.
+rto_bounds = st.sampled_from(
+    [(250, 1000, 60_000), (250, 1000, 60_000), (250, 250, 2000), (250, 250, 250), (1, 1, 1)]
+)
 
 
 class TcbAgainstAnything(RuleBasedStateMachine):
@@ -137,6 +146,8 @@ class TcbAgainstAnything(RuleBasedStateMachine):
         tx_buffer=st.integers(1, 5000),
         max_ooo=st.integers(1, 64),
         scaling=st.booleans(),
+        rto=rto_bounds,
+        max_retransmits=st.sampled_from([8, 8, 2]),
         # Mostly connected from the start: a run spent in SYN_SENT is a run
         # that tests almost nothing, and the clock or a refusal ends most of
         # them there if left to chance.
@@ -154,6 +165,8 @@ class TcbAgainstAnything(RuleBasedStateMachine):
         tx_buffer: int,
         max_ooo: int,
         scaling: bool,
+        rto: tuple[int, int, int],
+        max_retransmits: int,
         handshake: bool,
         syn_ack_mss: int | None,
         syn_ack_window: int,
@@ -174,9 +187,19 @@ class TcbAgainstAnything(RuleBasedStateMachine):
                 tx_buffer=tx_buffer,
                 max_ooo_segments=max_ooo,
                 window_scaling=scaling,
+                rto_min_ms=rto[0],
+                rto_initial_ms=rto[1],
+                rto_max_ms=rto[2],
+                max_retransmits=max_retransmits,
             ),
         )
         self.state = State.CLOSED
+        self.una = self.tcb.snd_una
+        self.progressed_at = self.now
+        """When an ACK last moved snd_una: the retransmission budget's start."""
+        self.heard_at = self.now
+        """When any segment last arrived: the persist budget's start."""
+        self.probing = False
 
         # Our side, as the application sees it.
         self.written = bytearray()
@@ -207,6 +230,10 @@ class TcbAgainstAnything(RuleBasedStateMachine):
             self.deliver(0, duplicate=False)
 
     # --- the peer ------------------------------------------------------
+
+    def receive(self, segment: TcpSegment) -> None:
+        self.heard_at = self.now
+        self.tcb.on_segment(segment, self.now)
 
     def our_offset(self, seq: int) -> int:
         return seq_diff(seq, seq_add(self.isn, 1))
@@ -256,7 +283,7 @@ class TcbAgainstAnything(RuleBasedStateMachine):
         life arrive in order, and a run that queues everything spends its
         steps delivering rather than getting anywhere."""
         if at_once:
-            self.tcb.on_segment(segment, self.now)
+            self.receive(segment)
             self.settle()
         else:
             self.network.append(segment)
@@ -348,7 +375,7 @@ class TcbAgainstAnything(RuleBasedStateMachine):
         """Any segment in flight, in any order; optionally leaving a copy."""
         index = pick % len(self.network)
         segment = self.network[index] if duplicate else self.network.pop(index)
-        self.tcb.on_segment(segment, self.now)
+        self.receive(segment)
         self.settle()
 
     @precondition(lambda self: self.network)
@@ -387,7 +414,7 @@ class TcbAgainstAnything(RuleBasedStateMachine):
             challenged = hit and distance != 0
             error_type = ConnectionReset
         sent_before = len(tcb.pending_segments)
-        tcb.on_segment(
+        self.receive(
             TcpSegment(
                 source_port=REMOTE_PORT,
                 destination_port=LOCAL_PORT,
@@ -396,8 +423,7 @@ class TcbAgainstAnything(RuleBasedStateMachine):
                 flags=Flag.RST | (Flag.ACK if with_ack else 0),
                 window=0,
                 payload=b"",
-            ),
-            self.now,
+            )
         )
         if before.is_closed:
             expected = challenged = False
@@ -420,7 +446,7 @@ class TcbAgainstAnything(RuleBasedStateMachine):
         and changes nothing else."""
         tcb = self.tcb
         before = (tcb.state, tcb.snd_nxt, tcb.rcv_nxt)
-        tcb.on_segment(
+        self.receive(
             TcpSegment(
                 source_port=REMOTE_PORT,
                 destination_port=LOCAL_PORT,
@@ -429,8 +455,7 @@ class TcbAgainstAnything(RuleBasedStateMachine):
                 flags=Flag.SYN | (Flag.ACK if with_ack else 0),
                 window=MAX_WINDOW,
                 payload=b"",
-            ),
-            self.now,
+            )
         )
         assert (tcb.state, tcb.snd_nxt, tcb.rcv_nxt) == before
         (challenge,) = tcb.pending_segments
@@ -446,7 +471,7 @@ class TcbAgainstAnything(RuleBasedStateMachine):
         the segment is ignored entirely, data and all."""
         tcb = self.tcb
         before = (tcb.state, tcb.snd_una, tcb.rcv_nxt, tcb.snd_wnd)
-        tcb.on_segment(
+        self.receive(
             TcpSegment(
                 source_port=REMOTE_PORT,
                 destination_port=LOCAL_PORT,
@@ -455,8 +480,7 @@ class TcbAgainstAnything(RuleBasedStateMachine):
                 flags=Flag.ACK,
                 window=MAX_WINDOW,
                 payload=b"\xee" * length,
-            ),
-            self.now,
+            )
         )
         assert (tcb.state, tcb.snd_una, tcb.rcv_nxt, tcb.snd_wnd) == before
         assert not tcb.pending_segments
@@ -544,6 +568,10 @@ class TcbAgainstAnything(RuleBasedStateMachine):
         if tcb.state is State.CLOSED and self.state is not State.CLOSED:
             assert self.ended, f"{self.state.name} -> CLOSED without saying so"
         self.state = tcb.state
+        if tcb.snd_una != self.una:
+            self.una = tcb.snd_una
+            self.progressed_at = self.now
+        self.probing = tcb.persist_deadline is not None
 
     def check_segment(self, segment: TcpSegment) -> None:
         tcb = self.tcb
@@ -615,12 +643,36 @@ class TcbAgainstAnything(RuleBasedStateMachine):
         elif name == "error":
             assert isinstance(detail, NetworkError)
             assert tcb.state is State.CLOSED
+            if isinstance(detail, ConnectionTimeout) and self.state in SYNCHRONIZED:
+                self.check_the_timeout_was_earned()
             self.ended = True
         elif name == "closed":
             assert tcb.state is State.CLOSED
             self.ended = True
         else:
             raise AssertionError(f"unknown event {name!r}")
+
+    def check_the_timeout_was_earned(self) -> None:
+        """Giving up takes max_retransmits resends or probes and one more
+        expiry, none sooner than rto_min_ms.
+
+        The retransmission budget restarts with every ACK that moves snd_una,
+        so a peer acknowledging a byte per timeout keeps the connection alive
+        however far the RTO has backed off. The persist budget restarts with
+        any segment at all: RFC 1122 4.2.2.17 lets a connection give up on a
+        peer that stopped answering its probes, never on one that answers them
+        with the window still shut.
+        """
+        config = self.tcb.config
+        if self.probing:
+            since, what = self.heard_at, "the last segment"
+        else:
+            since, what = self.progressed_at, "progress"
+        quiet = self.now - since
+        budget = (config.max_retransmits + 1) * config.rto_min_ms
+        assert quiet >= budget, (
+            f"gave up {quiet} ms after {what}; the budget is at least {budget} ms"
+        )
 
     # --- what holds between steps --------------------------------------
 
@@ -661,6 +713,13 @@ class TcbAgainstAnything(RuleBasedStateMachine):
         if tcb.state in SYNCHRONIZED and unacked <= len(self.written):
             tail = self.written[unacked : unacked + len(tcb.send_buffer)]
             assert bytes(tcb.send_buffer) == bytes(tail), "the send buffer drifted"
+
+    @invariant()
+    def timers_stay_within_bounds(self) -> None:
+        tcb = self.tcb
+        config = tcb.config
+        assert config.rto_min_ms <= tcb.rto_ms <= config.rto_max_ms
+        assert tcb.persist_ms <= config.rto_max_ms
 
     @invariant()
     def nothing_is_outstanding_without_a_timer(self) -> None:

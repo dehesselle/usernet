@@ -517,13 +517,22 @@ class Tcb:
         self._on_ack_congestion(segment.ack, acked, now)
 
     def _is_duplicate_ack(self, segment: TcpSegment) -> bool:
-        """RFC 5681 2: same ACK, no data, no window change, data outstanding."""
+        """RFC 5681 2: same ACK, no data, no window change, data outstanding.
+
+        Except behind a shut window. Our zero-window probe is the next byte of
+        the stream, so it is outstanding data, and every answer to it met all
+        four conditions. The third started fast recovery, which sent a whole
+        segment past the zero window and left nothing unsent for the persist
+        timer to probe for. A receiver offering no window is discarding what
+        arrives, not reporting a loss.
+        """
         return (
             segment.ack == self.snd_una
             and not segment.payload
             and not segment.has(Flag.SYN | Flag.FIN)
             and (segment.window << self.snd_wscale) == self.snd_wnd
             and self.flight_size > 0
+            and self.snd_wnd > 0
         )
 
     def _on_duplicate_ack(self, now: int) -> None:

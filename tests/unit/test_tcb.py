@@ -1519,6 +1519,27 @@ def test_a_peer_that_never_answers_probes_eventually_fails() -> None:
     assert isinstance(h.tcb.error, ConnectionTimeout)
 
 
+def test_a_peer_that_answers_probes_keeps_the_connection() -> None:
+    """RFC 1122 4.2.2.17: the window may stay shut for as long as the peer
+    likes, and a peer answering every probe is still there. Only silence
+    spends the budget."""
+    h = Harness(rto_min_ms=250, max_retransmits=3)
+    h.establish(window=0)
+    h.tcb.send(b"blocked", h.now)
+    h.sent()
+
+    for probe in range(1, 11):
+        deadline = h.tcb.persist_deadline
+        assert deadline is not None, f"stopped probing after {probe - 1} probes"
+        h.advance(deadline - h.now)
+        assert h.one().payload == b"b"
+        h.peer(seq=seq_add(PEER_ISN, 1), ack=seq_add(ISN, 1), flags=Flag.ACK, window=0)
+        h.sent()
+
+    assert h.tcb.state is State.ESTABLISHED
+    assert h.tcb.error is None
+
+
 def test_reading_reopens_a_closed_window_immediately() -> None:
     """A peer in persist would otherwise wait out a whole probe interval."""
     h = Harness(rx_buffer=100)
