@@ -27,11 +27,11 @@ import pytest
 from tests.conformance.conftest import HOST_IP, IMPAIRED, NETMASK, STACK_IP, within
 from tests.conformance.trace import PacketTrace
 from tests.conformance.tun import TunLink
-from usernet.errors import ConnectionRefused, NetworkError
-from usernet.net.ipv4 import PROTO_TCP, parse_ipv4
+from usernet.errors import ConnectionRefused, NetworkError, ProtocolParseError
+from usernet.net.ipv4 import PROTO_TCP, parse_ipv4, verify_header_checksum
 from usernet.net.stack import StackConfig
 from usernet.net.tcb import TcbConfig
-from usernet.net.tcp import Flag, TcpSegment, parse_tcp
+from usernet.net.tcp import Flag, TcpSegment, parse_tcp, verify_tcp_checksum
 from usernet.runtime.driver import Driver
 
 pytestmark = pytest.mark.linux_only
@@ -55,7 +55,12 @@ def digest(data: bytes) -> str:
 
 
 def tcp_segments(trace: PacketTrace, *, outbound: bool | None = None) -> Iterator[TcpSegment]:
-    """Every TCP segment in the trace, parsed off the wire."""
+    """Every intact TCP segment in the trace, parsed off the wire.
+
+    The trace sees what netem's corrupt profile damaged as it arrived, before
+    the stack drops it. Skipping it here, by the same checks, keeps a flipped
+    bit from crashing a test or lending it a window nobody sent.
+    """
     for was_outbound, packet in trace.packets:
         if outbound is not None and was_outbound != outbound:
             continue
@@ -63,9 +68,14 @@ def tcp_segments(trace: PacketTrace, *, outbound: bool | None = None) -> Iterato
         # solicitations, MLD -- which is none of these tests' business.
         if packet[0] >> 4 != 4:
             continue
-        header, body = parse_ipv4(packet)
-        if header.protocol == PROTO_TCP:
-            yield parse_tcp(body)
+        try:
+            header, body = parse_ipv4(packet)
+            if header.protocol != PROTO_TCP or not verify_header_checksum(packet):
+                continue
+            if verify_tcp_checksum(header.source, header.destination, body):
+                yield parse_tcp(body)
+        except ProtocolParseError:
+            continue
 
 
 def kernel_mss(trace: PacketTrace) -> int:
