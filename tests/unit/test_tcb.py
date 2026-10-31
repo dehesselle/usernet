@@ -532,6 +532,43 @@ def test_a_backed_off_timer_collapses_with_the_first_clean_sample() -> None:
     assert h.tcb.rto_ms < backed_off // 2
 
 
+def test_progress_outlasts_a_backoff_held_at_the_cap() -> None:
+    """Behind a receiver that discards out-of-order data, every segment past a
+    loss goes out twice, so each ACK here is for a second transmission and
+    Karn's rule allows no sample. The RTO doubles to its cap and stays there.
+    But each ACK that moves snd_una restarts the retransmission budget: a
+    connection still making progress must not fail however many timeouts it
+    takes. The driver soak reached this only in seeds too slow for its
+    timeout, so it is pinned here instead."""
+    h = Harness(rto_min_ms=1, rto_max_ms=5000, max_retransmits=3)
+    h.establish(peer_mss=536, rtt_ms=100)
+    data = bytes(range(256)) * 64
+    h.tcb.send(data, h.now)
+    h.sent()  # the first flight, lost
+
+    delivered = b""
+    rtos = []
+    for timeout in range(1, 9):
+        h.advance(h.tcb.rto_ms)
+        assert h.tcb.error is None, f"gave up at timeout {timeout}"
+        rtos.append(h.tcb.rto_ms)
+        (resent,) = h.sent()
+        delivered += resent.payload
+        h.peer(seq=seq_add(PEER_ISN, 1), ack=seq_add(ISN, 1 + len(delivered)), flags=Flag.ACK)
+        h.sent()  # the next flight, lost again
+
+    assert rtos == [600, 1200, 2400, 4800, 5000, 5000, 5000, 5000]
+    assert h.tcb.state is State.ESTABLISHED
+    assert h.tcb.srtt_ms == 100
+    assert delivered == data[: len(delivered)]
+
+    # The second segment of the last flight went out once, so its ACK is a
+    # sample at last, and the RTO comes back to what the path needs.
+    h.now += 100
+    h.peer(seq=seq_add(PEER_ISN, 1), ack=seq_add(ISN, 1 + len(delivered) + 1072), flags=Flag.ACK)
+    assert h.tcb.rto_ms < 1000
+
+
 # --- closing ---------------------------------------------------------------
 
 

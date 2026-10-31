@@ -71,6 +71,16 @@ def scenario(seed: int) -> dict[str, object]:
     # suite owns loss on bulk transfers.
     if s["loss"]:
         s["response"] = min(s["response"], 1400)  # type: ignore[type-var]
+    # Loss bounds the request too, at the smallest MTU. With no timestamps,
+    # Karn's rule leaves no RTT sample while one recovery follows another, and
+    # behind a fixture peer that discards out-of-order data every segment sent
+    # past a hole goes out again. So each timeout doubles the RTO and nothing
+    # brings it back down. In 536-byte segments, 120 KB of hex reached a 60 s
+    # RTO and outlasted the test in 2 of 145 seeds, at 2% loss and at 5%. 40 KB
+    # is fewer segments than the largest request takes at the other MTUs,
+    # where no seed out of 300 took longer than 9 s.
+    if s["loss"] and s["mtu"] == 576:
+        s["request"] = min(s["request"], 20_000)  # type: ignore[type-var]
     # Reading a byte at a time is for partial reads, not throughput: through
     # the driver each read is a pass of the event loop, and 400 KB of them
     # takes minutes.
